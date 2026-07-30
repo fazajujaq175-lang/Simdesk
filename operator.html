@@ -316,6 +316,10 @@ let currentRole = null;   // 'admin' | 'employee'
 let adminTab = 'messengers';
 let msgFilterStatus = 'all';
 let msgFilterType = 'all';
+let msgFilterEmployee = 'all';
+let msgFilterDateFrom = '';
+let msgFilterDateTo = '';
+let msgFiltersPanelOpen = false;
 let popupOpen = false;
 let adminPollInterval = null;
 
@@ -1133,9 +1137,21 @@ function adminMessengersHtml(){
   const blocked = DB.messengers.filter(m=>m.status==='blocked').length;
   const tempBlocked = DB.messengers.filter(m=>m.status==='temp_blocked').length;
 
+  // список сотрудников для фильтра — по username, но отображаем имя
+  const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
+
   let list = DB.messengers.slice().sort((a,b)=>b.createdAt-a.createdAt);
   if(msgFilterStatus!=='all') list = list.filter(m=>m.status===msgFilterStatus);
   if(msgFilterType!=='all') list = list.filter(m=>m.type===msgFilterType);
+  if(msgFilterEmployee!=='all') list = list.filter(m=>m.assignedTo===msgFilterEmployee || m.lastHolder===msgFilterEmployee);
+  if(msgFilterDateFrom){
+    const fromTs = new Date(msgFilterDateFrom+'T00:00:00').getTime();
+    list = list.filter(m=>m.createdAt && m.createdAt>=fromTs);
+  }
+  if(msgFilterDateTo){
+    const toTs = new Date(msgFilterDateTo+'T23:59:59').getTime();
+    list = list.filter(m=>m.createdAt && m.createdAt<=toTs);
+  }
 
   const rows = list.map(m=>{
     let statusCell = `<span class="sbadge ${m.status}">${statusLabel(m.status)}</span>`;
@@ -1150,6 +1166,7 @@ function adminMessengersHtml(){
       <td><span class="tbadge ${m.type}"><span class="dot"></span>${typeLabel(m.type)}</span></td>
       <td>${statusCell}</td>
       <td>${(m.status==='available') ? '—' : escapeHtml(m.assignedName || m.lastHolderName || '—')}</td>
+      <td style="color:var(--text-dim);font-size:12px;">${fmtDateTime(m.createdAt)}</td>
       <td>${fmtDateTime(m.assignedAt)}</td>
       <td>
         <div class="row-actions">
@@ -1209,15 +1226,42 @@ function adminMessengersHtml(){
     </div>
 
     <div class="section-title">Список номеров</div>
-    <div class="filter-row" style="margin-top:10px;">
+    <div class="filter-row" style="margin-top:10px;align-items:center;">
       ${['all','available','assigned','temp_blocked','blocked'].map(s=>`<div class="fbtn ${msgFilterStatus===s?'active':''}" onclick="setMsgFilter('status','${s}')">${s==='all'?'Все статусы':statusLabel(s)}</div>`).join('')}
       <span style="width:10px;"></span>
       ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${msgFilterType===t?'active':''}" onclick="setMsgFilter('type','${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
+      <span style="flex:1;"></span>
+      <button class="btn btn-ghost btn-sm" onclick="toggleMsgFiltersPanel()">${msgFiltersPanelOpen?'Скрыть фильтры ▲':'Ещё фильтры ▼'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportMessengersToExcel()">⬇ Экспорт в Excel</button>
     </div>
+
+    ${msgFiltersPanelOpen ? `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="form-row" style="margin-bottom:0;align-items:flex-end;">
+        <div class="field">
+          <label>Сотрудник</label>
+          <select id="msg-filter-employee" onchange="setMsgEmployeeFilter(this.value)">
+            <option value="all" ${msgFilterEmployee==='all'?'selected':''}>Все сотрудники</option>
+            ${employeeOptions.map(u=>`<option value="${escapeHtml(u)}" ${msgFilterEmployee===u?'selected':''}>${escapeHtml(DB.employees[u].name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="max-width:170px;">
+          <label>Добавлен с</label>
+          <input type="date" id="msg-filter-date-from" value="${msgFilterDateFrom}" onchange="setMsgDateFilter('from', this.value)" style="width:100%;padding:11px 12px;background:var(--panel-3);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;">
+        </div>
+        <div class="field" style="max-width:170px;">
+          <label>Добавлен по</label>
+          <input type="date" id="msg-filter-date-to" value="${msgFilterDateTo}" onchange="setMsgDateFilter('to', this.value)" style="width:100%;padding:11px 12px;background:var(--panel-3);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;">
+        </div>
+        <button class="btn btn-ghost" onclick="resetMsgFilters()">Сбросить фильтры</button>
+      </div>
+    </div>
+    ` : ''}
+
     <div class="card" style="padding:8px 16px;">
       ${list.length ? `
       <table>
-        <thead><tr><th>Номер</th><th>Тип</th><th>Статус</th><th>Сотрудник</th><th>Выдан</th><th></th></tr></thead>
+        <thead><tr><th>Номер</th><th>Тип</th><th>Статус</th><th>Сотрудник</th><th>Добавлен</th><th>Выдан</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
     </div>
@@ -1232,6 +1276,63 @@ function adminMessengersHtml(){
 function setMsgFilter(kind, val){
   if(kind==='status') msgFilterStatus = val; else msgFilterType = val;
   renderAdminTabContent();
+}
+
+function toggleMsgFiltersPanel(){
+  msgFiltersPanelOpen = !msgFiltersPanelOpen;
+  renderAdminTabContent();
+}
+
+function setMsgEmployeeFilter(val){
+  msgFilterEmployee = val;
+  renderAdminTabContent();
+}
+
+function setMsgDateFilter(which, val){
+  if(which==='from') msgFilterDateFrom = val; else msgFilterDateTo = val;
+  renderAdminTabContent();
+}
+
+function resetMsgFilters(){
+  msgFilterStatus = 'all';
+  msgFilterType = 'all';
+  msgFilterEmployee = 'all';
+  msgFilterDateFrom = '';
+  msgFilterDateTo = '';
+  renderAdminTabContent();
+}
+
+function exportMessengersToExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('Библиотека для Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
+  let list = DB.messengers.slice().sort((a,b)=>b.createdAt-a.createdAt);
+  if(msgFilterStatus!=='all') list = list.filter(m=>m.status===msgFilterStatus);
+  if(msgFilterType!=='all') list = list.filter(m=>m.type===msgFilterType);
+  if(msgFilterEmployee!=='all') list = list.filter(m=>m.assignedTo===msgFilterEmployee || m.lastHolder===msgFilterEmployee);
+  if(msgFilterDateFrom){
+    const fromTs = new Date(msgFilterDateFrom+'T00:00:00').getTime();
+    list = list.filter(m=>m.createdAt && m.createdAt>=fromTs);
+  }
+  if(msgFilterDateTo){
+    const toTs = new Date(msgFilterDateTo+'T23:59:59').getTime();
+    list = list.filter(m=>m.createdAt && m.createdAt<=toTs);
+  }
+  if(!list.length){ showToast('Нет данных под текущий фильтр для экспорта', 'danger'); return; }
+  const rows = list.map(m=>({
+    'Номер': m.phone,
+    'Тип': typeLabel(m.type),
+    'Статус': statusLabel(m.status),
+    'Сотрудник': m.assignedName || m.lastHolderName || '',
+    'Добавлен': fmtDateTime(m.createdAt),
+    'Выдан': fmtDateTime(m.assignedAt),
+    'Заблокирован': fmtDateTime(m.blockedAt)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:12},{wch:14},{wch:20},{wch:18},{wch:18},{wch:18}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Номера');
+  const dateStr = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, 'sim_desk_номера_'+dateStr+'.xlsx');
+  showToast('Экспортировано номеров: '+list.length, 'success');
 }
 
 function normalizeMessengerType(raw){
