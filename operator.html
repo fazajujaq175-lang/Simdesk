@@ -373,35 +373,54 @@ function seedDB(){
 
 function uid(){ return 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
 
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject)=> setTimeout(()=> reject(new Error('Тайм-аут подключения к Supabase')), ms))
+  ]);
+}
+
 async function loadDB(){
   if(!sb){
     showToast('Supabase не настроен — заполните SUPABASE_URL и SUPABASE_ANON_KEY в коде', 'danger');
     return seedDB();
   }
+  let res;
   try{
-    const { data, error } = await sb.from('sim_desk_state').select('data').eq('id', 1).single();
-    if(error) throw error;
-    if(data && data.data && Object.keys(data.data).length) return normalizeDB(data.data);
-  }catch(e){ /* row missing or error -> seed below */ }
+    res = await withTimeout(sb.from('sim_desk_state').select('data').eq('id', 1).single(), 10000);
+  }catch(e){
+    throw new Error('Не удалось подключиться к Supabase. Проверьте интернет-соединение (или VPN) и что проект в Supabase не приостановлен.');
+  }
+  const { data, error } = res;
+  if(error){
+    if(error.code === 'PGRST116'){
+      // строки в таблице действительно ещё нет — это первый запуск, создаём её
+      const seeded = seedDB();
+      try{ await withTimeout(sb.from('sim_desk_state').upsert({ id:1, data: seeded }), 10000); }catch(e){}
+      return seeded;
+    }
+    throw new Error('Ошибка Supabase: ' + (error.message || 'неизвестная ошибка') + '. Данные НЕ были перезаписаны.');
+  }
+  if(data && data.data && Object.keys(data.data).length) return normalizeDB(data.data);
   const seeded = seedDB();
-  try{ await sb.from('sim_desk_state').upsert({ id:1, data: seeded }); }catch(e){}
+  try{ await withTimeout(sb.from('sim_desk_state').update({ data: seeded }).eq('id', 1), 10000); }catch(e){}
   return seeded;
 }
 
 async function saveDB(){
   if(!sb){ showToast('Supabase не настроен', 'danger'); return; }
   try{
-    const { error } = await sb.from('sim_desk_state').update({ data: DB, updated_at: new Date().toISOString() }).eq('id', 1);
+    const { error } = await withTimeout(sb.from('sim_desk_state').update({ data: DB, updated_at: new Date().toISOString() }).eq('id', 1), 10000);
     if(error) throw error;
   }catch(e){
-    showToast('Не удалось сохранить данные', 'danger');
+    showToast('Не удалось сохранить данные (проверьте соединение)', 'danger');
   }
 }
 
 async function refreshFromStorage(){
   if(!sb) return;
   try{
-    const { data, error } = await sb.from('sim_desk_state').select('data').eq('id', 1).single();
+    const { data, error } = await withTimeout(sb.from('sim_desk_state').select('data').eq('id', 1).single(), 10000);
     if(error) throw error;
     if(data && data.data) DB = normalizeDB(data.data);
   }catch(e){ /* ignore transient errors, keep current in-memory DB */ }
@@ -1787,7 +1806,20 @@ document.addEventListener('click', (e)=>{
 });
 
 (async function init(){
-  DB = await loadDB();
+  try{
+    DB = await loadDB();
+  }catch(e){
+    document.getElementById('app').innerHTML = `
+      <div class="login-wrap">
+        <div class="login-card" style="text-align:center;">
+          <h1 class="login-title" style="color:var(--danger);">Не удалось подключиться</h1>
+          <p class="login-sub">${escapeHtml(e.message || 'Ошибка соединения с базой данных.')}</p>
+          <button class="btn btn-primary" style="width:100%;margin-top:6px;" onclick="location.reload()">Обновить страницу</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
   processTempBlockExpirations();
   renderLogin();
   setupRealtimeSync();
