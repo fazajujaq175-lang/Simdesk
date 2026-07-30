@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIM Desk — Кабинет сотрудника</title>
+<style>
+  :root{
+    --bg:#0b0f17;
+    --panel:#121826;
+    --panel-2:#171f30;
+    --panel-3:#1c2538;
+    --border:#26304a;
+    --text:#eef1f7;
+    --text-dim:#8993ab;
+    --text-faint:#5c6685;
+    --accent:#5b8cff;
+    --accent-dim:#2d3f6b;
+    --tg:#4f9dff;
+    --wa:#33c17a;
+    --max:#a672f2;
+    --success:#33c17a;
+    --warning:#f0b94d;
+    --danger:#ef5c72;
+    --mono: 'SF Mono', 'Roboto Mono', ui-monospace, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);}
+  body{-webkit-font-smoothing:antialiased;}
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+  .hidden{display:none !important;}
+
+  ::selection{background:var(--accent-dim);}
+  a{color:var(--accent);}
+  button{font-family:inherit;cursor:pointer;}
+  input, select{font-family:inherit;}
+
+  .eyebrow{
+    text-transform:uppercase;letter-spacing:.14em;font-size:11px;font-weight:700;
+    color:var(--text-faint);
+  }
+
+  /* ---------- LOGIN ---------- */
+  .login-wrap{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(91,140,255,0.10), transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(166,114,242,0.10), transparent 40%),
+      var(--bg);
+    padding:24px;
+  }
+  .login-card{
+    width:100%;max-width:380px;background:var(--panel);border:1px solid var(--border);
+    border-radius:16px;padding:36px 32px;
+  }
+  .login-mark{
+    width:44px;height:30px;border-radius:6px;
+    background:linear-gradient(135deg,#d8c98a,#a9924e);
+    position:relative;margin-bottom:20px;
+    clip-path:polygon(0 0, 78% 0, 100% 30%, 100% 100%, 0 100%);
+  }
+  .login-mark::after{
+    content:"";position:absolute;inset:6px;border-radius:3px;
+    background:repeating-linear-gradient(90deg, rgba(0,0,0,.25) 0 1px, transparent 1px 5px);
+  }
+  h1.login-title{font-size:22px;margin:0 0 4px;letter-spacing:-0.01em;}
+  .login-sub{color:var(--text-dim);font-size:13px;margin:0 0 28px;line-height:1.5;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px;}
+  .field input{
+    width:100%;padding:11px 12px;background:var(--panel-3);border:1px solid var(--border);
+    border-radius:9px;color:var(--text);font-size:14px;outline:none;transition:border-color .15s;
+  }
+  .field input:focus{border-color:var(--accent);}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 18px;border-radius:9px;border:1px solid transparent;
+    font-size:14px;font-weight:600;transition:filter .15s, transform .05s;
+  }
+  .btn:active{transform:scale(0.98);}
+  .btn-primary{background:var(--accent);color:#fff;width:100%;margin-top:6px;}
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-ghost{background:transparent;border-color:var(--border);color:var(--text);}
+  .btn-ghost:hover{border-color:var(--text-dim);}
+  .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger);}
+  .btn-danger:hover{background:rgba(239,92,114,0.1);}
+  .btn-sm{padding:6px 12px;font-size:12.5px;border-radius:7px;}
+  .icon-btn{
+    width:28px;height:28px;padding:0;border-radius:7px;background:transparent;border:1px solid var(--border);
+    color:var(--text-dim);display:inline-flex;align-items:center;justify-content:center;font-size:13px;
+  }
+  .icon-btn:hover{border-color:var(--text-dim);color:var(--text);}
+  .icon-btn.danger-hover:hover{border-color:var(--danger);color:var(--danger);}
+  .row-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .role-pill{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:20px;}
+  .role-pill.admin{background:rgba(240,185,77,0.14);color:var(--warning);}
+  .role-pill.operator{background:rgba(91,140,255,0.14);color:var(--accent);}
+  .quota-bar{font-size:12.5px;color:var(--text-dim);margin-bottom:18px;display:flex;gap:16px;flex-wrap:wrap;}
+  .quota-bar b{color:var(--text);}
+  .quota-pill{background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;}
+  .login-error{
+    background:rgba(239,92,114,0.1);border:1px solid rgba(239,92,114,0.3);color:#ff9aac;
+    padding:9px 12px;border-radius:8px;font-size:12.5px;margin-top:12px;
+  }
+  .login-hint{margin-top:22px;padding-top:18px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-faint);line-height:1.6;}
+
+  /* ---------- SHELL ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-0.01em;font-size:15px;}
+  .brand .chip{width:20px;height:14px;border-radius:3px;background:linear-gradient(135deg,#d8c98a,#a9924e);clip-path:polygon(0 0, 78% 0, 100% 30%, 100% 100%, 0 100%);}
+  .who{display:flex;align-items:center;gap:12px;}
+  .who .name{font-size:13.5px;color:var(--text-dim);}
+  .who .role-badge{
+    font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;
+    padding:3px 8px;border-radius:5px;background:var(--panel-3);color:var(--text-dim);border:1px solid var(--border);
+  }
+
+  .main{flex:1;padding:26px 24px 60px;max-width:1180px;width:100%;margin:0 auto;}
+
+  .tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:1px solid var(--border);}
+  .tab{
+    padding:10px 16px;font-size:13.5px;color:var(--text-dim);border-bottom:2px solid transparent;
+    font-weight:600;transition:color .15s;
+  }
+  .tab.active{color:var(--text);border-color:var(--accent);}
+  .tab:hover{color:var(--text);}
+
+  .section-title{font-size:16px;font-weight:700;margin:0 0 4px;letter-spacing:-0.01em;}
+  .section-sub{font-size:13px;color:var(--text-dim);margin:0 0 18px;}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media (max-width:720px){ .grid-3{grid-template-columns:1fr;} .grid-4{grid-template-columns:repeat(2,1fr);} }
+
+  .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .stat-num{font-size:26px;font-weight:800;letter-spacing:-0.02em;}
+  .stat-label{font-size:11.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px;}
+
+  /* type badges */
+  .tbadge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;}
+  .tbadge.telegram{background:rgba(79,157,255,0.14);color:var(--tg);}
+  .tbadge.whatsapp{background:rgba(51,193,122,0.14);color:var(--wa);}
+  .tbadge.max{background:rgba(166,114,242,0.14);color:var(--max);}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+
+  .sbadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;}
+  .sbadge.available{background:rgba(139,148,171,0.14);color:var(--text-dim);}
+  .sbadge.assigned{background:rgba(51,193,122,0.14);color:var(--success);}
+  .sbadge.blocked{background:rgba(239,92,114,0.14);color:var(--danger);}
+  .sbadge.temp_blocked{background:rgba(240,185,77,0.14);color:var(--warning);}
+
+  .bell-wrap{position:relative;}
+  .bell-btn{
+    position:relative;width:32px;height:32px;padding:0;border-radius:8px;background:transparent;
+    border:1px solid var(--border);color:var(--text-dim);display:inline-flex;align-items:center;justify-content:center;font-size:15px;
+  }
+  .bell-btn:hover{border-color:var(--text-dim);color:var(--text);}
+  .bell-badge{
+    position:absolute;top:-5px;right:-5px;background:var(--danger);color:#fff;font-size:10px;font-weight:800;
+    min-width:16px;height:16px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;
+  }
+  .bell-dropdown{
+    position:absolute;top:38px;right:0;width:320px;max-height:400px;overflow-y:auto;
+    background:var(--panel-3);border:1px solid var(--border);border-radius:12px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.5);z-index:50;padding:8px;
+  }
+  .bell-item{padding:10px 10px;border-radius:8px;font-size:12.5px;line-height:1.5;}
+  .bell-item.unread{background:rgba(91,140,255,0.08);}
+  .bell-item + .bell-item{margin-top:2px;}
+  .bell-item .bell-time{font-size:10.5px;color:var(--text-faint);margin-top:3px;}
+  .bell-empty{padding:20px;text-align:center;color:var(--text-dim);font-size:12.5px;}
+  .bell-footer{display:flex;justify-content:flex-end;padding:6px 4px 2px;}
+
+  /* request cards (employee) */
+  .req-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .req-card .req-top{display:flex;align-items:center;justify-content:space-between;}
+  .req-card .avail-count{font-size:12px;color:var(--text-dim);}
+  .req-card .req-name{font-size:15px;font-weight:700;}
+
+  /* SIM tiles */
+  .sim-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+  .sim-ring{
+    border-radius:17px;padding:3px;transition:background 1s linear;
+  }
+  .sim-card{
+    position:relative;border-radius:14px;padding:16px 16px 14px;
+    background:var(--panel-2);border:1px solid var(--border);
+    clip-path:polygon(0 0, 84% 0, 100% 16%, 100% 100%, 0 100%);
+    transition:border-color .2s;
+    height:100%;
+  }
+  .sim-card.warning{border-color:rgba(240,185,77,0.55);animation:pulseWarn 2.2s infinite;}
+  .sim-card.blocked{opacity:0.72;}
+  @keyframes pulseWarn{
+    0%,100%{box-shadow:0 0 0 0 rgba(240,185,77,0.0);}
+    50%{box-shadow:0 0 0 4px rgba(240,185,77,0.08);}
+  }
+  .sim-chip{
+    width:26px;height:18px;border-radius:4px;margin-bottom:10px;
+    background:linear-gradient(135deg,#d8c98a,#a9924e);
+    position:relative;
+  }
+  .sim-chip::after{content:"";position:absolute;inset:3px;border-radius:2px;background:repeating-linear-gradient(90deg, rgba(0,0,0,.25) 0 1px, transparent 1px 4px);}
+  .sim-phone{font-family:var(--mono);font-size:16.5px;font-weight:600;letter-spacing:.01em;margin-bottom:8px;}
+  .sim-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .sim-time{font-size:11.5px;color:var(--text-dim);}
+  .sim-owner{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+  .sim-actions{display:flex;flex-direction:column;gap:6px;margin-top:12px;}
+  .sim-actions .btn{padding:7px 4px;font-size:11px;white-space:nowrap;}
+  .sim-actions .btn-row{display:flex;gap:6px;}
+  .sim-actions .btn-row .btn{flex:1;}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border);}
+  td{padding:10px 10px;border-bottom:1px solid var(--border);}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:rgba(255,255,255,0.015);}
+
+  .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+  .fbtn{
+    padding:6px 13px;border-radius:20px;font-size:12.5px;font-weight:600;
+    background:var(--panel-2);border:1px solid var(--border);color:var(--text-dim);
+  }
+  .fbtn.active{background:var(--accent-dim);color:#cfe0ff;border-color:var(--accent);}
+
+  .form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;}
+  .form-row .field{margin-bottom:0;min-width:160px;flex:1;}
+  .form-row select{
+    width:100%;padding:11px 12px;background:var(--panel-3);border:1px solid var(--border);
+    border-radius:9px;color:var(--text);font-size:14px;
+  }
+
+  .empty-state{padding:40px 20px;text-align:center;color:var(--text-dim);font-size:13.5px;}
+
+  /* popup overlay */
+  .popup-overlay{
+    position:fixed;inset:0;background:rgba(6,9,15,0.86);backdrop-filter:blur(3px);
+    display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;
+  }
+  .popup-card{
+    width:100%;max-width:420px;background:var(--panel);border:1px solid var(--border);
+    border-radius:18px;padding:32px 28px;text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+  }
+  .popup-icon{
+    width:56px;height:56px;border-radius:14px;margin:0 auto 18px;
+    background:rgba(240,185,77,0.14);display:flex;align-items:center;justify-content:center;
+    font-size:26px;
+  }
+  .popup-title{font-size:17px;font-weight:700;margin-bottom:8px;}
+  .popup-phone{font-family:var(--mono);font-size:15px;color:var(--text-dim);margin-bottom:4px;}
+  .popup-text{font-size:13.5px;color:var(--text-dim);line-height:1.55;margin-bottom:22px;}
+  .popup-actions{display:flex;gap:10px;}
+  .popup-actions .btn{flex:1;}
+
+  /* toast */
+  #toast-wrap{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;}
+  .toast{
+    background:var(--panel-3);border:1px solid var(--border);border-left:3px solid var(--accent);
+    padding:12px 16px;border-radius:9px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.35);
+    animation:toastIn .2s ease-out;max-width:320px;
+  }
+  .toast.success{border-left-color:var(--success);}
+  .toast.danger{border-left-color:var(--danger);}
+  @keyframes toastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(6,9,15,0.7);display:flex;align-items:center;justify-content:center;z-index:90;padding:20px;
+  }
+  .modal-card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:26px;}
+  .modal-card h3{margin:0 0 16px;font-size:16px;}
+
+  .settings-line{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-dim);margin-top:18px;}
+  .settings-line input{width:70px;padding:6px 8px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;}
+
+  .loader{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:13px;}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div id="app"><div class="loader">Загрузка…</div></div>
+<div id="toast-wrap"></div>
+
+<script>
+/* ================= DATA LAYER ================= */
+/* === НАСТРОЙКА SUPABASE — вставьте свои значения из Settings → API === */
+const SUPABASE_URL = 'https://xjaztwawglpugciskddn.supabase.co';        // например: https://xxxxxxxx.supabase.co
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqYXp0d2F3Z2xwdWdjaXNrZGRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MTUyMTMsImV4cCI6MjEwMDk5MTIxM30.JOyH7oM_XWRvMYlUwD9xZvx6WXRlXwpA9zuPNTT4KGQ'; // именно "anon public", НЕ "service_role"!
+/* ======================================================================= */
+
+const sb = (SUPABASE_URL.indexOf('ВАШ_')===-1 && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+const ADMIN_LOGIN = 'FarmerAdmin';
+const ADMIN_PASSWORD = 'Admincash';
+
+/* Жёстко фиксирует, какая это страница: 'admin' или 'operator'.
+   Именно поэтому нужны два разных файла — в один хардкодим 'admin', в другой 'operator'. */
+const FIXED_PORTAL = 'operator';
+
+let DB = null;
+let currentUser = null;   // username string (employee) or null for admin
+let currentRole = null;   // 'admin' | 'employee'
+let adminTab = 'messengers';
+let msgFilterStatus = 'all';
+let msgFilterType = 'all';
+let popupOpen = false;
+let adminPollInterval = null;
+
+function defaultDB(){
+  return {
+    employees: {}, // username -> {password, name, department, role:'admin'|'operator', norm:null|number}
+    messengers: [], // {id,type,phone,status,assignedTo,assignedName,lastHolder,lastHolderName,assignedAt,lastCheck,blockedAt,tempBlockKind,tempBlockUntil,tempBlockStartedAt,createdAt}
+    log: [],
+    excessRequests: [], // {id, username, name, department, type, requestedAt, status:'pending'|'approved'|'rejected', resolvedBy, resolvedAt, assignedMessengerId, assignedPhone}
+    notifications: [], // {id, username, message, ts, read}
+    settings: { checkIntervalMinutes: 60 }
+  };
+}
+
+function normalizeDB(db){
+  Object.keys(db.employees).forEach(u=>{
+    const e = db.employees[u];
+    if(e.department===undefined) e.department = '';
+    if(e.role===undefined) e.role = 'operator';
+    if(e.norm===undefined) e.norm = null;
+  });
+  db.messengers.forEach(m=>{
+    if(m.tempBlockKind===undefined) m.tempBlockKind = null;
+    if(m.tempBlockUntil===undefined) m.tempBlockUntil = null;
+    if(m.tempBlockStartedAt===undefined) m.tempBlockStartedAt = null;
+  });
+  if(!db.excessRequests) db.excessRequests = [];
+  if(!db.notifications) db.notifications = [];
+  if(!db.settings) db.settings = { checkIntervalMinutes: 60 };
+  return db;
+}
+
+function seedDB(){
+  const db = defaultDB();
+  db.employees['ivanov'] = { password:'12345', name:'Иванов И.И.', department:'Soft', role:'operator', norm:null };
+  const seedNumbers = [
+    ['telegram','+7 901 222-11-01'],
+    ['telegram','+7 901 222-11-02'],
+    ['telegram','+7 901 222-11-03'],
+    ['whatsapp','+7 902 333-44-01'],
+    ['whatsapp','+7 902 333-44-02'],
+    ['max','+7 903 555-66-01'],
+    ['max','+7 903 555-66-02'],
+  ];
+  seedNumbers.forEach(([type,phone])=>{
+    db.messengers.push({
+      id: uid(), type, phone, status:'available',
+      assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
+      assignedAt:null, lastCheck:null, blockedAt:null,
+      tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
+    });
+  });
+  return db;
+}
+
+function uid(){ return 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
+
+async function loadDB(){
+  if(!sb){
+    showToast('Supabase не настроен — заполните SUPABASE_URL и SUPABASE_ANON_KEY в коде', 'danger');
+    return seedDB();
+  }
+  try{
+    const { data, error } = await sb.from('sim_desk_state').select('data').eq('id', 1).single();
+    if(error) throw error;
+    if(data && data.data && Object.keys(data.data).length) return normalizeDB(data.data);
+  }catch(e){ /* row missing or error -> seed below */ }
+  const seeded = seedDB();
+  try{ await sb.from('sim_desk_state').upsert({ id:1, data: seeded }); }catch(e){}
+  return seeded;
+}
+
+async function saveDB(){
+  if(!sb){ showToast('Supabase не настроен', 'danger'); return; }
+  try{
+    const { error } = await sb.from('sim_desk_state').update({ data: DB, updated_at: new Date().toISOString() }).eq('id', 1);
+    if(error) throw error;
+  }catch(e){
+    showToast('Не удалось сохранить данные', 'danger');
+  }
+}
+
+async function refreshFromStorage(){
+  if(!sb) return;
+  try{
+    const { data, error } = await sb.from('sim_desk_state').select('data').eq('id', 1).single();
+    if(error) throw error;
+    if(data && data.data) DB = normalizeDB(data.data);
+  }catch(e){ /* ignore transient errors, keep current in-memory DB */ }
+}
+
+function setupRealtimeSync(){
+  if(!sb) return;
+  try{
+    sb.channel('sim_desk_changes')
+      .on('postgres_changes', { event:'UPDATE', schema:'public', table:'sim_desk_state', filter:'id=eq.1' }, payload=>{
+        if(!payload.new || !payload.new.data) return;
+        DB = normalizeDB(payload.new.data);
+        if(currentRole==='employee'){
+          if(!popupOpen){ renderEmployee(); } else { maybeShowPopupForEmployee(); }
+          checkForNewNotifications(currentUser);
+        } else if(currentRole==='admin'){
+          if(!isAdminFormActive()){
+            renderAdminTabContent();
+          }
+          updatePendingBadge();
+        }
+      })
+      .subscribe();
+  }catch(e){ /* realtime is a nice-to-have, ignore failures */ }
+}
+
+function log(event, extra){
+  DB.log.push(Object.assign({ ts: Date.now(), event }, extra));
+}
+
+function addNotification(username, message){
+  if(!username) return;
+  DB.notifications.push({ id: uid(), username, message, ts: Date.now(), read:false });
+}
+
+function processTempBlockExpirations(){
+  const now = Date.now();
+  let changed = false;
+  DB.messengers.forEach(m=>{
+    if(m.status==='temp_blocked' && m.tempBlockUntil && now >= m.tempBlockUntil){
+      if(m.tempBlockKind==='whatsapp6h'){
+        const holder = m.assignedTo;
+        m.status = 'assigned';
+        m.lastCheck = now;
+        log('temp_block_expired', { username: holder, messengerId:m.id, phone:m.phone, type:m.type, kind:'whatsapp6h' });
+        addNotification(holder, 'Временная блокировка снята: номер '+m.phone+' (WhatsApp) снова активен');
+      } else if(m.tempBlockKind==='max10d'){
+        log('temp_block_expired', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, kind:'max10d' });
+        m.status = 'available';
+        m.assignedTo = null; m.assignedName = null; m.assignedAt = null; m.lastCheck = null;
+      }
+      m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+let audioCtx = null;
+function playNotificationSound(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ring = (freq, delay)=>{
+      setTimeout(()=>{
+        try{
+          const o = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          o.type = 'sine'; o.frequency.value = freq;
+          g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.28, audioCtx.currentTime+0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.32);
+          o.connect(g); g.connect(audioCtx.destination);
+          o.start(); o.stop(audioCtx.currentTime+0.35);
+        }catch(e){}
+      }, delay);
+    };
+    ring(880, 0);
+    ring(1180, 150);
+  }catch(e){ /* audio blocked or unsupported, ignore silently */ }
+}
+
+let knownNotificationIds = new Set();
+function primeKnownNotifications(username){
+  knownNotificationIds = new Set(DB.notifications.filter(n=>n.username===username).map(n=>n.id));
+}
+function checkForNewNotifications(username){
+  const mine = DB.notifications.filter(n=>n.username===username);
+  const fresh = mine.filter(n=>!knownNotificationIds.has(n.id));
+  if(fresh.length){
+    playNotificationSound();
+    fresh.forEach(n=>{ knownNotificationIds.add(n.id); showToast(n.message, 'success'); });
+  }
+}
+
+/* ================= HELPERS ================= */
+function typeLabel(t){ return t==='telegram'?'Telegram': t==='whatsapp'?'WhatsApp':'MAX'; }
+function statusLabel(s){ return s==='available'?'Свободен': s==='assigned'?'Выдан': s==='temp_blocked'?'Врем. блок':'Заблокирован'; }
+
+function fmtDuration(ms){
+  if(ms<0) ms=0;
+  const totalMin = Math.floor(ms/60000);
+  const h = Math.floor(totalMin/60);
+  const m = totalMin%60;
+  if(h<=0) return m+' мин';
+  return h+' ч '+m+' мин';
+}
+function fmtDateTime(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+}
+
+function getWeekStartTs(d){
+  const date = d ? new Date(d) : new Date();
+  const day = date.getDay(); // 0=Sun..6=Sat
+  const diff = (day===0 ? -6 : 1-day); // shift to Monday
+  date.setDate(date.getDate()+diff);
+  date.setHours(0,0,0,0);
+  return date.getTime();
+}
+
+function weeklyUsedCount(username){
+  const weekStart = getWeekStartTs();
+  return DB.log.filter(e=>e.event==='assigned' && e.username===username && e.ts>=weekStart).length;
+}
+
+function getQuotaStatus(username){
+  const emp = DB.employees[username];
+  const norm = emp ? emp.norm : null;
+  const used = weeklyUsedCount(username);
+  const hasQuota = (norm===null || norm===undefined) || used < norm;
+  return { norm, used, hasQuota };
+}
+
+function actingAdminUsername(){
+  return currentUser || 'admin';
+}
+
+const DEPARTMENTS = ['Precollection','Soft','Soft+','Hard','KC','Obuchenie','Admin'];
+
+function uniqueDepartments(){
+  return DEPARTMENTS.slice();
+}
+
+function showToast(msg, kind){
+  const wrap = document.getElementById('toast-wrap');
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind? ' '+kind : '');
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, 3400);
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ================= LOGIN ================= */
+function renderLogin(errorMsg){
+  const app = document.getElementById('app');
+  const portal = getPortalMode(); // 'admin' | 'operator' — задаётся константой FIXED_PORTAL
+  const title = portal==='admin' ? 'SIM Desk — Админ' : 'SIM Desk — Кабинет сотрудника';
+  const sub = portal==='admin'
+    ? 'Панель управления пулом номеров, доступами и нормами.'
+    : 'Запрос мессенджеров и учёт активных номеров.';
+  const hint = portal==='admin'
+    ? 'Эта страница предназначена только для администраторов. Сотрудникам её адрес не передавайте.'
+    : 'Доступ сотруднику выдаёт администратор во вкладке «Доступы». Без учётной записи войти нельзя.';
+  app.innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-mark"></div>
+        <h1 class="login-title">${title}</h1>
+        <p class="login-sub">${sub}</p>
+        <div class="field">
+          <label>Логин</label>
+          <input id="login-username" type="text" autocomplete="username" placeholder="Ваш логин">
+        </div>
+        <div class="field">
+          <label>Пароль</label>
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="Ваш пароль">
+        </div>
+        <button class="btn btn-primary" onclick="handleLogin()">Войти</button>
+        ${errorMsg ? `<div class="login-error">${escapeHtml(errorMsg)}</div>` : ''}
+        <div class="login-hint">${hint}</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') handleLogin(); });
+}
+
+function getPortalMode(){
+  return FIXED_PORTAL;
+}
+
+function handleLogin(){
+  const u = document.getElementById('login-username').value.trim();
+  const p = document.getElementById('login-password').value;
+  const portal = getPortalMode();
+  if(u === ADMIN_LOGIN && p === ADMIN_PASSWORD){
+    if(portal!=='admin'){ renderLogin('Эта страница только для сотрудников. Обратитесь к администратору за отдельным адресом админки.'); return; }
+    currentRole = 'admin'; currentUser = null;
+    renderAdmin();
+    return;
+  }
+  const emp = DB.employees[u];
+  if(emp && emp.password === p){
+    if(emp.role === 'admin'){
+      if(portal!=='admin'){ renderLogin('Эта страница только для сотрудников. Обратитесь к администратору за отдельным адресом админки.'); return; }
+      currentRole = 'admin'; currentUser = u;
+      renderAdmin();
+      return;
+    }
+    if(portal!=='operator'){ renderLogin('Эта страница только для администраторов.'); return; }
+    currentRole = 'employee'; currentUser = u;
+    renderEmployee();
+    startEmployeeClock();
+    return;
+  }
+  renderLogin('Неверный логин или пароль.');
+}
+
+function logout(){
+  currentRole = null; currentUser = null; popupOpen = false;
+  if(employeeClockInterval) clearInterval(employeeClockInterval);
+  if(adminPollInterval) clearInterval(adminPollInterval);
+  renderLogin();
+}
+
+/* ================= EMPLOYEE VIEW ================= */
+function renderEmployee(){
+  const emp = DB.employees[currentUser];
+  const mine = DB.messengers.filter(m=>m.assignedTo===currentUser && m.status==='assigned');
+  const tempMine = DB.messengers.filter(m=>m.assignedTo===currentUser && m.status==='temp_blocked' && m.tempBlockKind==='whatsapp6h');
+
+  const availCounts = { telegram:0, whatsapp:0, max:0 };
+  DB.messengers.forEach(m=>{ if(m.status==='available') availCounts[m.type]++; });
+  const quota = getQuotaStatus(currentUser);
+  const myNotifications = DB.notifications.filter(n=>n.username===currentUser).sort((a,b)=>b.ts-a.ts);
+  const unreadCount = myNotifications.filter(n=>!n.read).length;
+
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="topbar">
+      <div class="brand"><span class="chip"></span> SIM Desk</div>
+      <div class="who">
+        <span class="name">${escapeHtml(emp ? emp.name : currentUser)}</span>
+        <span class="role-badge">Сотрудник</span>
+        <div class="bell-wrap">
+          <button class="bell-btn" onclick="toggleBellDropdown()">🔔${unreadCount ? `<span class="bell-badge">${unreadCount>9?'9+':unreadCount}</span>` : ''}</button>
+          <div id="bell-dropdown" class="hidden"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="manualRefreshEmployee()" title="Обновить данные">⟳</button>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">Выйти</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="section-title">Запросить мессенджер</div>
+      <p class="section-sub">Номер выдаётся автоматически из общего пула. Раз в час нужно будет подтвердить, что аккаунт ещё активен.</p>
+      <div class="quota-bar">
+        <span class="quota-pill">Норма на неделю: <b>${quota.norm===null||quota.norm===undefined?'без ограничений':quota.norm}</b></span>
+        <span class="quota-pill">Использовано: <b>${quota.used}</b></span>
+      </div>
+      <div class="grid-3" style="margin-bottom:32px;">
+        ${requestCardHtml('telegram', availCounts.telegram, quota)}
+        ${requestCardHtml('whatsapp', availCounts.whatsapp, quota)}
+        ${requestCardHtml('max', availCounts.max, quota)}
+      </div>
+
+      <div class="section-title">Мои мессенджеры</div>
+      <p class="section-sub">${mine.length ? 'Активные номера, закреплённые за вами.' : 'Пока ничего не закреплено — запросите номер выше.'}</p>
+      ${mine.length ? `<div class="sim-grid" style="margin-bottom:32px;">${mine.map(simCardHtml).join('')}</div>` : '<div class="card empty-state" style="margin-bottom:32px;">Активных мессенджеров нет</div>'}
+
+      <div class="section-title">Временно заблокированные</div>
+      <p class="section-sub">Номера WhatsApp с временной блокировкой на 6 часов — вернутся к вам автоматически.</p>
+      ${tempMine.length ? `<div class="sim-grid">${tempMine.map(simCardHtml).join('')}</div>` : '<div class="card empty-state">Пока нет номеров с временной блокировкой</div>'}
+    </div>
+  `;
+  maybeShowPopupForEmployee();
+  checkForNewNotifications(currentUser);
+}
+
+function toggleBellDropdown(){
+  const dd = document.getElementById('bell-dropdown');
+  if(!dd) return;
+  if(!dd.classList.contains('hidden')){ dd.classList.add('hidden'); return; }
+  renderBellDropdown();
+  dd.classList.remove('hidden');
+}
+
+function renderBellDropdown(){
+  const dd = document.getElementById('bell-dropdown');
+  if(!dd) return;
+  const mine = DB.notifications.filter(n=>n.username===currentUser).sort((a,b)=>b.ts-a.ts).slice(0,25);
+  dd.className = 'bell-dropdown';
+  dd.innerHTML = `
+    ${mine.length ? mine.map(n=>`
+      <div class="bell-item ${n.read?'':'unread'}">
+        <div>${escapeHtml(n.message)}</div>
+        <div class="bell-time">${fmtDateTime(n.ts)}</div>
+      </div>
+    `).join('') : '<div class="bell-empty">Уведомлений пока нет</div>'}
+    ${mine.length ? `<div class="bell-footer"><button class="btn btn-ghost btn-sm" onclick="markAllNotificationsRead()">Прочитано</button></div>` : ''}
+  `;
+}
+
+async function markAllNotificationsRead(){
+  DB.notifications.forEach(n=>{ if(n.username===currentUser) n.read = true; });
+  await saveDB();
+  renderEmployee();
+  toggleBellDropdown();
+}
+
+function requestCardHtml(type, count, quota){
+  if(quota && !quota.hasQuota){
+    const pending = DB.excessRequests.find(r=>r.username===currentUser && r.type===type && r.status==='pending');
+    if(pending){
+      return `
+        <div class="req-card">
+          <div class="req-top">
+            <span class="tbadge ${type}"><span class="dot"></span>${typeLabel(type)}</span>
+            <span class="avail-count">${count} своб.</span>
+          </div>
+          <div class="req-name">Получить номер ${typeLabel(type)}</div>
+          <button class="btn btn-ghost" disabled style="opacity:.6;cursor:not-allowed;">Ожидает решения администратора</button>
+        </div>
+      `;
+    }
+    return `
+      <div class="req-card">
+        <div class="req-top">
+          <span class="tbadge ${type}"><span class="dot"></span>${typeLabel(type)}</span>
+          <span class="avail-count">${count} своб.</span>
+        </div>
+        <div class="req-name">Получить номер ${typeLabel(type)}</div>
+        <button class="btn btn-danger" onclick="requestExcessMessenger('${type}')">Запросить сверх нормы</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="req-card">
+      <div class="req-top">
+        <span class="tbadge ${type}"><span class="dot"></span>${typeLabel(type)}</span>
+        <span class="avail-count">${count} своб.</span>
+      </div>
+      <div class="req-name">Получить номер ${typeLabel(type)}</div>
+      <button class="btn btn-primary" ${count===0?'disabled style="opacity:.45;cursor:not-allowed;"':''} onclick="requestMessenger('${type}')">Запросить</button>
+    </div>
+  `;
+}
+
+async function requestMessenger(type){
+  const quota = getQuotaStatus(currentUser);
+  if(!quota.hasQuota){
+    return requestExcessMessenger(type);
+  }
+  const found = DB.messengers.find(m=>m.type===type && m.status==='available');
+  if(!found){
+    showToast('Нет свободных номеров этого типа. Обратитесь к администратору.', 'danger');
+    return;
+  }
+  const emp = DB.employees[currentUser];
+  const now = Date.now();
+  found.status = 'assigned';
+  found.assignedTo = currentUser;
+  found.assignedName = emp ? emp.name : currentUser;
+  found.lastHolder = currentUser;
+  found.lastHolderName = emp ? emp.name : currentUser;
+  found.assignedAt = now;
+  found.lastCheck = now;
+  found.blockedAt = null;
+  log('assigned', { username: currentUser, messengerId: found.id, phone: found.phone, type: found.type });
+  await saveDB();
+  showToast(typeLabel(type)+' номер '+found.phone+' закреплён за вами', 'success');
+  renderEmployee();
+}
+
+async function requestExcessMessenger(type){
+  const existing = DB.excessRequests.find(r=>r.username===currentUser && r.type===type && r.status==='pending');
+  if(existing){ showToast('Запрос уже отправлен и ожидает решения', 'danger'); return; }
+  const emp = DB.employees[currentUser];
+  DB.excessRequests.push({
+    id: uid(), username: currentUser, name: emp ? emp.name : currentUser,
+    department: emp ? emp.department : '', type,
+    requestedAt: Date.now(), status:'pending',
+    resolvedBy:null, resolvedAt:null, assignedMessengerId:null, assignedPhone:null
+  });
+  await saveDB();
+  showToast('Запрос сверх нормы отправлен администратору', 'success');
+  renderEmployee();
+}
+
+function simCardHtml(m){
+  const isTemp = m.status==='temp_blocked';
+  const isBlocked = m.status==='blocked';
+  let timeInfo = '';
+  let warnClass = '';
+  let ringStyle = '';
+  if(isTemp){
+    const total = m.tempBlockUntil - m.tempBlockStartedAt;
+    const remaining = Math.max(0, m.tempBlockUntil - Date.now());
+    const frac = total>0 ? Math.max(0, Math.min(1, remaining/total)) : 0;
+    const pct = (frac*100).toFixed(1);
+    const kindLabel = m.tempBlockKind==='whatsapp6h' ? 'Временный блок 6ч' : 'Временный блок 10 дней';
+    timeInfo = `<div class="sim-time">${kindLabel} · осталось ${fmtDuration(remaining)}</div>`;
+    ringStyle = `background: conic-gradient(var(--warning) ${pct}%, rgba(255,255,255,0.07) ${pct}%);`;
+  } else if(!isBlocked){
+    const interval = (DB.settings.checkIntervalMinutes||60)*60000;
+    const elapsedSinceCheck = Date.now() - m.lastCheck;
+    const remaining = Math.max(0, interval - elapsedSinceCheck);
+    const remainingFrac = Math.max(0, Math.min(1, remaining/interval));
+    const pct = (remainingFrac*100).toFixed(1);
+    timeInfo = `<div class="sim-time">Проверка через ${fmtDuration(remaining)}</div>`;
+    const isWarn = remaining < 5*60000;
+    if(isWarn) warnClass = ' warning';
+    const ringColor = isWarn ? 'var(--warning)' : 'var(--accent)';
+    ringStyle = `background: conic-gradient(${ringColor} ${pct}%, rgba(255,255,255,0.07) ${pct}%);`;
+  } else {
+    timeInfo = `<div class="sim-time">Заблокирован ${fmtDateTime(m.blockedAt)}</div>`;
+    ringStyle = `background: rgba(255,255,255,0.05);`;
+  }
+
+  let actions = '';
+  if(!isTemp && !isBlocked){
+    if(m.type==='whatsapp'){
+      actions = `
+        <div class="sim-actions">
+          <button class="btn btn-ghost btn-sm" onclick="cardConfirmActive('${m.id}')">До сих пор активный</button>
+          <div class="btn-row">
+            <button class="btn btn-sm" style="background:rgba(240,185,77,0.14);color:var(--warning);border:1px solid rgba(240,185,77,0.3);" onclick="cardTempBlock('${m.id}')">Врем. блок 6ч</button>
+            <button class="btn btn-danger btn-sm" onclick="cardBlock('${m.id}')">Блок навсегда</button>
+          </div>
+        </div>
+      `;
+    } else if(m.type==='max'){
+      actions = `
+        <div class="sim-actions">
+          <button class="btn btn-ghost btn-sm" onclick="cardConfirmActive('${m.id}')">До сих пор активный</button>
+          <div class="btn-row">
+            <button class="btn btn-sm" style="background:rgba(240,185,77,0.14);color:var(--warning);border:1px solid rgba(240,185,77,0.3);" onclick="cardTempBlock('${m.id}')">Врем. блок 10дн</button>
+            <button class="btn btn-danger btn-sm" onclick="cardBlock('${m.id}')">Блок навсегда</button>
+          </div>
+        </div>
+      `;
+    } else {
+      actions = `
+        <div class="sim-actions">
+          <button class="btn btn-ghost btn-sm" onclick="cardConfirmActive('${m.id}')">До сих пор активный</button>
+          <button class="btn btn-danger btn-sm" onclick="cardBlock('${m.id}')">Ушёл в блок</button>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="sim-ring" style="${ringStyle}">
+      <div class="sim-card${warnClass}${isBlocked?' blocked':''}">
+        <div class="sim-chip"></div>
+        <div class="sim-phone">${escapeHtml(m.phone)}</div>
+        <div class="sim-meta">
+          <span class="tbadge ${m.type}"><span class="dot"></span>${typeLabel(m.type)}</span>
+          <span class="sbadge ${m.status}">${statusLabel(m.status)}</span>
+        </div>
+        ${timeInfo}
+        <div class="sim-owner">Выдан: ${fmtDateTime(m.assignedAt)}</div>
+        ${actions}
+      </div>
+    </div>
+  `;
+}
+
+let employeeClockInterval = null;
+function startEmployeeClock(){
+  if(employeeClockInterval) clearInterval(employeeClockInterval);
+  primeKnownNotifications(currentUser);
+  employeeClockInterval = setInterval(async ()=>{
+    if(currentRole==='employee'){
+      await refreshFromStorage();
+      const changed = processTempBlockExpirations();
+      if(changed) await saveDB();
+      if(!popupOpen){
+        renderEmployee();
+      } else {
+        maybeShowPopupForEmployee();
+        checkForNewNotifications(currentUser);
+      }
+    } else {
+      clearInterval(employeeClockInterval);
+    }
+  }, 5000);
+}
+
+async function manualRefreshEmployee(){
+  await refreshFromStorage();
+  const changed = processTempBlockExpirations();
+  if(changed) await saveDB();
+  if(!popupOpen) renderEmployee();
+  showToast('Данные обновлены', 'success');
+}
+
+function maybeShowPopupForEmployee(){
+  if(popupOpen || currentRole!=='employee') return;
+  const interval = (DB.settings.checkIntervalMinutes||60)*60000;
+  const mine = DB.messengers.filter(m=>m.assignedTo===currentUser && m.status==='assigned');
+  const due = mine.find(m=> (Date.now() - m.lastCheck) >= interval);
+  if(due) openCheckPopup(due);
+}
+
+function openCheckPopup(m){
+  popupOpen = true;
+  const overlay = document.createElement('div');
+  overlay.className = 'popup-overlay';
+  overlay.id = 'check-popup-overlay';
+  const extraBtn = m.type==='whatsapp'
+    ? `<button class="btn btn-sm" style="background:rgba(240,185,77,0.14);color:var(--warning);border:1px solid rgba(240,185,77,0.3);flex:1;" onclick="popupTempBlock('${m.id}')">Врем. блок 6ч</button>`
+    : m.type==='max'
+    ? `<button class="btn btn-sm" style="background:rgba(240,185,77,0.14);color:var(--warning);border:1px solid rgba(240,185,77,0.3);flex:1;" onclick="popupTempBlock('${m.id}')">Врем. блок 10дн</button>`
+    : '';
+  overlay.innerHTML = `
+    <div class="popup-card">
+      <div class="popup-icon">⏱</div>
+      <div class="popup-title">Проверка мессенджера</div>
+      <div class="popup-phone">${escapeHtml(m.phone)} · ${typeLabel(m.type)}</div>
+      <div class="popup-text">Прошёл час с последней проверки. Аккаунт заблокирован / забанен на стороне мессенджера?</div>
+      <div class="popup-actions">
+        <button class="btn btn-ghost" onclick="answerCheckPopup('${m.id}', false)">До сих пор активный</button>
+        ${extraBtn}
+        <button class="btn btn-danger" onclick="answerCheckPopup('${m.id}', true)">Блок навсегда</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeCheckPopupIfOpen(){
+  const overlay = document.getElementById('check-popup-overlay');
+  if(overlay){ overlay.remove(); popupOpen = false; }
+}
+
+async function markMessengerActive(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  m.lastCheck = Date.now();
+  log('confirmed_active', { username: currentUser, messengerId: m.id, phone: m.phone, type: m.type });
+  await saveDB();
+}
+
+async function markMessengerBlocked(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  m.status = 'blocked';
+  m.assignedTo = null;
+  m.blockedAt = Date.now();
+  log('blocked', { username: currentUser, messengerId: m.id, phone: m.phone, type: m.type });
+  await saveDB();
+  showToast('Номер '+m.phone+' перемещён в заблокированные', 'danger');
+}
+
+async function markMessengerTempBlocked(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m || (m.type!=='whatsapp' && m.type!=='max')) return;
+  const now = Date.now();
+  if(m.type==='whatsapp'){
+    m.status = 'temp_blocked';
+    m.tempBlockKind = 'whatsapp6h';
+    m.tempBlockStartedAt = now;
+    m.tempBlockUntil = now + 6*3600000;
+    log('temp_blocked', { username: currentUser, messengerId: m.id, phone: m.phone, type: m.type, kind:'whatsapp6h' });
+    showToast('Временная блокировка на 6 часов установлена', 'danger');
+  } else {
+    m.status = 'temp_blocked';
+    m.tempBlockKind = 'max10d';
+    m.tempBlockStartedAt = now;
+    m.tempBlockUntil = now + 10*24*3600000;
+    m.assignedTo = null;
+    log('temp_blocked', { username: currentUser, messengerId: m.id, phone: m.phone, type: m.type, kind:'max10d' });
+    showToast('Временная блокировка на 10 дней установлена', 'danger');
+  }
+  await saveDB();
+}
+
+async function answerCheckPopup(messengerId, isBlocked){
+  closeCheckPopupIfOpen();
+  if(isBlocked){ await markMessengerBlocked(messengerId); } else { await markMessengerActive(messengerId); }
+  renderEmployee();
+  setTimeout(maybeShowPopupForEmployee, 700);
+}
+
+async function popupTempBlock(id){
+  closeCheckPopupIfOpen();
+  await markMessengerTempBlocked(id);
+  renderEmployee();
+  setTimeout(maybeShowPopupForEmployee, 700);
+}
+
+async function cardConfirmActive(id){
+  closeCheckPopupIfOpen();
+  await markMessengerActive(id);
+  renderEmployee();
+  setTimeout(maybeShowPopupForEmployee, 300);
+}
+
+async function cardBlock(id){
+  closeCheckPopupIfOpen();
+  await markMessengerBlocked(id);
+  renderEmployee();
+  setTimeout(maybeShowPopupForEmployee, 300);
+}
+
+async function cardTempBlock(id){
+  closeCheckPopupIfOpen();
+  await markMessengerTempBlocked(id);
+  renderEmployee();
+  setTimeout(maybeShowPopupForEmployee, 300);
+}
+
+/* ================= ADMIN VIEW ================= */
+function renderAdmin(){
+  const app = document.getElementById('app');
+  const displayName = currentUser ? (DB.employees[currentUser] ? DB.employees[currentUser].name : currentUser) : 'FarmerAdmin';
+  const pendingCount = DB.excessRequests.filter(r=>r.status==='pending').length;
+  app.innerHTML = `
+    <div class="topbar">
+      <div class="brand"><span class="chip"></span> SIM Desk</div>
+      <div class="who">
+        <span class="name">${escapeHtml(displayName)}</span>
+        <span class="role-badge">Администратор</span>
+        <button class="btn btn-ghost btn-sm" onclick="manualRefreshAdmin()" title="Обновить данные">⟳</button>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">Выйти</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="tabs">
+        <div class="tab ${adminTab==='messengers'?'active':''}" onclick="switchAdminTab('messengers')">Мессенджеры</div>
+        <div class="tab ${adminTab==='analytics'?'active':''}" onclick="switchAdminTab('analytics')">Аналитика</div>
+        <div class="tab ${adminTab==='access'?'active':''}" onclick="switchAdminTab('access')">Доступы</div>
+        <div class="tab ${adminTab==='quotas'?'active':''}" onclick="switchAdminTab('quotas')">Нормы</div>
+        <div class="tab ${adminTab==='excess'?'active':''}" onclick="switchAdminTab('excess')">Свыше нормы${pendingCount?' ('+pendingCount+')':''}</div>
+      </div>
+      <div id="admin-tab-content"></div>
+    </div>
+  `;
+  renderAdminTabContent();
+  startAdminPoll();
+}
+
+function isAdminFormActive(){
+  const active = document.activeElement;
+  const container = document.getElementById('admin-tab-content');
+  if(!active || !container) return false;
+  if(!container.contains(active)) return false;
+  const tag = active.tagName;
+  return tag==='INPUT' || tag==='SELECT' || tag==='TEXTAREA';
+}
+
+function startAdminPoll(){
+  if(adminPollInterval) clearInterval(adminPollInterval);
+  adminPollInterval = setInterval(async ()=>{
+    if(currentRole==='admin'){
+      await refreshFromStorage();
+      const changed = processTempBlockExpirations();
+      if(changed) await saveDB();
+      if(!isAdminFormActive()){
+        renderAdminTabContent();
+      }
+      updatePendingBadge();
+    } else {
+      clearInterval(adminPollInterval);
+    }
+  }, 5000);
+}
+
+async function manualRefreshAdmin(){
+  await refreshFromStorage();
+  const changed = processTempBlockExpirations();
+  if(changed) await saveDB();
+  renderAdminTabContent();
+  updatePendingBadge();
+  showToast('Данные обновлены', 'success');
+}
+
+function updatePendingBadge(){
+  const tabs = document.querySelectorAll('.tab');
+  const excessTab = Array.from(tabs).find(t=>t.textContent.indexOf('Свыше нормы')===0);
+  if(excessTab){
+    const pendingCount = DB.excessRequests.filter(r=>r.status==='pending').length;
+    excessTab.textContent = 'Свыше нормы' + (pendingCount ? ' ('+pendingCount+')' : '');
+  }
+}
+
+function switchAdminTab(tab){
+  adminTab = tab;
+  renderAdmin();
+}
+
+function renderAdminTabContent(){
+  const el = document.getElementById('admin-tab-content');
+  if(adminTab==='messengers') el.innerHTML = adminMessengersHtml();
+  else if(adminTab==='analytics') el.innerHTML = adminAnalyticsHtml();
+  else if(adminTab==='access') el.innerHTML = adminAccessHtml();
+  else if(adminTab==='quotas') el.innerHTML = adminQuotasHtml();
+  else el.innerHTML = adminExcessHtml();
+}
+
+/* ---- Messengers tab ---- */
+function adminMessengersHtml(){
+  const total = DB.messengers.length;
+  const available = DB.messengers.filter(m=>m.status==='available').length;
+  const assigned = DB.messengers.filter(m=>m.status==='assigned').length;
+  const blocked = DB.messengers.filter(m=>m.status==='blocked').length;
+  const tempBlocked = DB.messengers.filter(m=>m.status==='temp_blocked').length;
+
+  let list = DB.messengers.slice().sort((a,b)=>b.createdAt-a.createdAt);
+  if(msgFilterStatus!=='all') list = list.filter(m=>m.status===msgFilterStatus);
+  if(msgFilterType!=='all') list = list.filter(m=>m.type===msgFilterType);
+
+  const rows = list.map(m=>{
+    let statusCell = `<span class="sbadge ${m.status}">${statusLabel(m.status)}</span>`;
+    if(m.status==='temp_blocked'){
+      const remaining = Math.max(0, m.tempBlockUntil - Date.now());
+      const kindLabel = m.tempBlockKind==='whatsapp6h' ? '6ч' : '10дн';
+      statusCell += `<div style="font-size:10.5px;color:var(--text-dim);margin-top:3px;">${kindLabel} · осталось ${fmtDuration(remaining)}</div>`;
+    }
+    return `
+    <tr>
+      <td class="sim-phone" style="font-family:var(--mono);">${escapeHtml(m.phone)}</td>
+      <td><span class="tbadge ${m.type}"><span class="dot"></span>${typeLabel(m.type)}</span></td>
+      <td>${statusCell}</td>
+      <td>${(m.status==='available') ? '—' : escapeHtml(m.assignedName || m.lastHolderName || '—')}</td>
+      <td>${fmtDateTime(m.assignedAt)}</td>
+      <td>
+        <div class="row-actions">
+          ${m.status==='assigned' ? `<button class="btn btn-ghost btn-sm" onclick="adminRevoke('${m.id}')">Отозвать</button>` : ''}
+          ${m.status==='blocked' ? `<button class="btn btn-ghost btn-sm" onclick="adminReturnToPool('${m.id}')">Вернуть в пул</button>` : ''}
+          ${m.status==='temp_blocked' ? `<button class="btn btn-ghost btn-sm" onclick="adminClearTempBlock('${m.id}')">Снять досрочно</button>` : ''}
+          <button class="icon-btn" title="Изменить" onclick="openEditMessengerModal('${m.id}')">✎</button>
+          <button class="icon-btn danger-hover" title="Удалить" onclick="deleteMessenger('${m.id}')">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `;
+  }).join('');
+
+  return `
+    <div class="grid-4" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">Всего номеров</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--text-dim)">${available}</div><div class="stat-label">Свободно</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--success)">${assigned}</div><div class="stat-label">Выдано</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--danger)">${blocked}</div><div class="stat-label">Заблокировано</div></div>
+    </div>
+    <div class="grid-4" style="margin-bottom:24px;">
+      <div class="stat-card"><div class="stat-num" style="color:var(--warning)">${tempBlocked}</div><div class="stat-label">Временный блок</div></div>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:24px;align-items:stretch;">
+      <div class="card" style="grid-column:span 1;">
+        <div class="section-title" style="margin-bottom:2px;">Добавить номер вручную</div>
+        <p class="section-sub">Новый номер сразу становится доступен сотрудникам.</p>
+        <div class="field" style="margin-bottom:10px;">
+          <label>Мессенджер</label>
+          <select id="new-msg-type">
+            <option value="telegram">Telegram</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="max">MAX</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:12px;">
+          <label>Номер телефона</label>
+          <input id="new-msg-phone" type="text" placeholder="+7 900 000-00-00">
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="adminAddMessenger()">Добавить в пул</button>
+      </div>
+
+      <div class="card" style="grid-column:span 2;">
+        <div class="section-title" style="margin-bottom:2px;">Массовая загрузка из Excel</div>
+        <p class="section-sub">Столбец A — номер телефона, столбец B — тип (Telegram / WhatsApp / MAX). Первая строка может быть заголовком — она просто будет пропущена.</p>
+        <div class="form-row">
+          <div class="field">
+            <label>Файл .xlsx / .xls</label>
+            <input id="excel-upload-input" type="file" accept=".xlsx,.xls" style="padding:8px;background:var(--panel-3);border:1px solid var(--border);border-radius:9px;color:var(--text);width:100%;">
+          </div>
+          <button class="btn btn-primary" onclick="handleExcelUpload()">Загрузить</button>
+        </div>
+        <div id="excel-upload-status" style="font-size:12px;color:var(--text-dim);"></div>
+      </div>
+    </div>
+
+    <div class="section-title">Список номеров</div>
+    <div class="filter-row" style="margin-top:10px;">
+      ${['all','available','assigned','temp_blocked','blocked'].map(s=>`<div class="fbtn ${msgFilterStatus===s?'active':''}" onclick="setMsgFilter('status','${s}')">${s==='all'?'Все статусы':statusLabel(s)}</div>`).join('')}
+      <span style="width:10px;"></span>
+      ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${msgFilterType===t?'active':''}" onclick="setMsgFilter('type','${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
+    </div>
+    <div class="card" style="padding:8px 16px;">
+      ${list.length ? `
+      <table>
+        <thead><tr><th>Номер</th><th>Тип</th><th>Статус</th><th>Сотрудник</th><th>Выдан</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
+    </div>
+
+    <div class="settings-line">
+      Интервал проверки активности:
+      <input id="interval-input" type="number" min="1" value="${DB.settings.checkIntervalMinutes}" onchange="updateInterval(this.value)"> мин
+    </div>
+  `;
+}
+
+function setMsgFilter(kind, val){
+  if(kind==='status') msgFilterStatus = val; else msgFilterType = val;
+  renderAdminTabContent();
+}
+
+function normalizeMessengerType(raw){
+  const s = String(raw||'').toLowerCase().trim();
+  if(s.indexOf('telegram')>-1 || s.indexOf('телеграм')>-1 || s==='tg') return 'telegram';
+  if(s.indexOf('whatsapp')>-1 || s.indexOf('ватсап')>-1 || s.indexOf('вотсап')>-1 || s==='wa') return 'whatsapp';
+  if(s.indexOf('max')>-1 || s.indexOf('макс')>-1) return 'max';
+  return null;
+}
+
+async function handleExcelUpload(){
+  const input = document.getElementById('excel-upload-input');
+  const statusEl = document.getElementById('excel-upload-status');
+  const file = input && input.files[0];
+  if(!file){ showToast('Выберите файл', 'danger'); return; }
+  if(typeof XLSX === 'undefined'){ showToast('Библиотека для чтения Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header:1 });
+    let added = 0, skipped = 0;
+    rows.forEach(row=>{
+      if(!row || !row.length) return;
+      const phoneRaw = row[0];
+      const typeRaw = row[1];
+      if(phoneRaw===undefined || phoneRaw===null || String(phoneRaw).trim()==='') return;
+      const phone = String(phoneRaw).trim();
+      const type = normalizeMessengerType(typeRaw);
+      if(!type){ skipped++; return; }
+      DB.messengers.push({
+        id: uid(), type, phone, status:'available',
+        assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
+        assignedAt:null, lastCheck:null, blockedAt:null,
+        tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
+      });
+      added++;
+    });
+    log('bulk_import', { username: actingAdminUsername(), added, skipped });
+    await saveDB();
+    if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено (не распознан тип): '+skipped:'');
+    showToast('Загрузка завершена: добавлено '+added+' номеров', 'success');
+    if(input) input.value = '';
+    renderAdminTabContent();
+  }catch(e){
+    showToast('Не удалось прочитать файл. Проверьте формат .xlsx', 'danger');
+  }
+}
+
+async function adminAddMessenger(){
+  const type = document.getElementById('new-msg-type').value;
+  const phone = document.getElementById('new-msg-phone').value.trim();
+  if(!phone){ showToast('Укажите номер телефона', 'danger'); return; }
+  const m = {
+    id: uid(), type, phone, status:'available',
+    assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
+    assignedAt:null, lastCheck:null, blockedAt:null,
+    tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
+  };
+  DB.messengers.push(m);
+  log('created_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  await saveDB();
+  showToast('Номер добавлен в пул', 'success');
+  renderAdminTabContent();
+}
+
+async function adminRevoke(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  m.status='available'; m.assignedTo=null; m.assignedName=null; m.assignedAt=null; m.lastCheck=null;
+  log('admin_revoked', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  await saveDB();
+  showToast('Номер отозван и возвращён в пул', 'success');
+  renderAdminTabContent();
+}
+
+async function adminReturnToPool(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  m.status='available'; m.assignedTo=null; m.assignedName=null; m.lastHolder=null; m.lastHolderName=null;
+  m.assignedAt=null; m.lastCheck=null; m.blockedAt=null;
+  log('admin_returned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  await saveDB();
+  showToast('Номер возвращён в пул как свободный', 'success');
+  renderAdminTabContent();
+}
+
+async function adminClearTempBlock(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m || m.status!=='temp_blocked') return;
+  if(m.tempBlockKind==='whatsapp6h'){
+    m.status = 'assigned';
+    m.lastCheck = Date.now();
+    addNotification(m.assignedTo, 'Администратор досрочно снял временную блокировку с номера '+m.phone);
+  } else if(m.tempBlockKind==='max10d'){
+    m.status = 'available';
+    m.assignedTo = null; m.assignedName = null; m.assignedAt = null; m.lastCheck = null;
+  }
+  log('temp_block_cleared_by_admin', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
+  await saveDB();
+  showToast('Временная блокировка снята досрочно', 'success');
+  renderAdminTabContent();
+}
+
+function openEditMessengerModal(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'edit-msg-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Изменить номер</h3>
+      <div class="field" style="margin-bottom:14px;">
+        <label>Мессенджер</label>
+        <select id="edit-msg-type">
+          <option value="telegram" ${m.type==='telegram'?'selected':''}>Telegram</option>
+          <option value="whatsapp" ${m.type==='whatsapp'?'selected':''}>WhatsApp</option>
+          <option value="max" ${m.type==='max'?'selected':''}>MAX</option>
+        </select>
+      </div>
+      <div class="field" style="margin-bottom:18px;">
+        <label>Номер телефона</label>
+        <input id="edit-msg-phone" type="text" value="${escapeHtml(m.phone)}">
+      </div>
+      <div class="popup-actions">
+        <button class="btn btn-ghost" onclick="closeEditMessengerModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="saveEditMessenger('${id}')">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeEditMessengerModal(){
+  const overlay = document.getElementById('edit-msg-overlay');
+  if(overlay) overlay.remove();
+}
+
+async function saveEditMessenger(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  const type = document.getElementById('edit-msg-type').value;
+  const phone = document.getElementById('edit-msg-phone').value.trim();
+  if(!phone){ showToast('Укажите номер телефона', 'danger'); return; }
+  m.type = type; m.phone = phone;
+  log('edited_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  await saveDB();
+  closeEditMessengerModal();
+  showToast('Номер обновлён', 'success');
+  renderAdminTabContent();
+}
+
+async function deleteMessenger(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  const ok = window.confirm('Удалить номер '+m.phone+' из пула безвозвратно?');
+  if(!ok) return;
+  DB.messengers = DB.messengers.filter(x=>x.id!==id);
+  log('deleted_messenger', { username: actingAdminUsername(), messengerId:id, phone:m.phone, type:m.type });
+  await saveDB();
+  showToast('Номер удалён', 'success');
+  renderAdminTabContent();
+}
+
+async function updateInterval(val){
+  const n = parseInt(val,10);
+  if(!n || n<1) return;
+  DB.settings.checkIntervalMinutes = n;
+  await saveDB();
+  showToast('Интервал проверки обновлён', 'success');
+}
+
+/* ---- Analytics tab ---- */
+function adminAnalyticsHtml(){
+  const usernames = Object.keys(DB.employees);
+  const rows = usernames.map(u=>{
+    const emp = DB.employees[u];
+    const totalAssigned = DB.log.filter(e=>e.event==='assigned' && e.username===u).length;
+    const totalBlocked = DB.log.filter(e=>e.event==='blocked' && e.username===u).length;
+    const activeNow = DB.messengers.filter(m=>m.status==='assigned' && m.assignedTo===u).length;
+    const rate = totalAssigned ? Math.round((totalBlocked/totalAssigned)*100) : 0;
+    return `
+      <tr>
+        <td>${escapeHtml(emp.name)}</td>
+        <td style="color:var(--text-dim)">${escapeHtml(u)}</td>
+        <td>${activeNow}</td>
+        <td>${totalAssigned}</td>
+        <td style="color:${totalBlocked?'var(--danger)':'var(--text-dim)'}">${totalBlocked}</td>
+        <td>${rate}%</td>
+        <td><button class="icon-btn" title="Подробнее" onclick="openEmployeeDetail('${escapeHtml(u)}')">👁</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalAssignedAll = DB.log.filter(e=>e.event==='assigned').length;
+  const totalBlockedAll = DB.log.filter(e=>e.event==='blocked').length;
+
+  return `
+    <div class="grid-3" style="margin-bottom:24px;">
+      <div class="stat-card"><div class="stat-num">${usernames.length}</div><div class="stat-label">Сотрудников с доступом</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--success)">${totalAssignedAll}</div><div class="stat-label">Всего выдач</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--danger)">${totalBlockedAll}</div><div class="stat-label">Всего блокировок</div></div>
+    </div>
+    <div class="section-title">По сотрудникам</div>
+    <p class="section-sub">Статистика считается по журналу событий и не зависит от текущего статуса номера.</p>
+    <div class="card" style="padding:8px 16px;">
+      ${usernames.length ? `
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Логин</th><th>Активно сейчас</th><th>Всего получено</th><th>Заблокировано</th><th>% блокировок</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Сотрудники ещё не добавлены — сделайте это во вкладке «Доступы»</div>'}
+    </div>
+  `;
+}
+
+function openEmployeeDetail(u){
+  const emp = DB.employees[u];
+  if(!emp) return;
+  const related = DB.messengers.filter(m=>m.assignedTo===u || m.lastHolder===u).sort((a,b)=>(b.assignedAt||0)-(a.assignedAt||0));
+  const rows = related.map(m=>`
+    <tr>
+      <td class="sim-phone" style="font-family:var(--mono);">${escapeHtml(m.phone)}</td>
+      <td><span class="tbadge ${m.type}"><span class="dot"></span>${typeLabel(m.type)}</span></td>
+      <td><span class="sbadge ${m.status}">${statusLabel(m.status)}</span></td>
+      <td>${fmtDateTime(m.assignedAt)}</td>
+    </tr>
+  `).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'emp-detail-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card" style="max-width:560px;">
+      <h3>${escapeHtml(emp.name)}</h3>
+      <p class="section-sub" style="margin-top:-10px;">Логин: <b style="color:var(--text)">${escapeHtml(u)}</b> · Отдел: ${emp.department?escapeHtml(emp.department):'—'} · <span class="role-pill ${emp.role}">${emp.role==='admin'?'Админ':'Оператор'}</span></p>
+      ${related.length ? `
+      <div style="max-height:320px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Номер</th><th>Тип</th><th>Статус</th><th>Выдан</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : '<div class="empty-state">За этим сотрудником пока не числится ни один номер</div>'}
+      <div class="popup-actions" style="margin-top:18px;">
+        <button class="btn btn-primary" style="width:100%;" onclick="closeEmployeeDetail()">Закрыть</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeEmployeeDetail(){
+  const overlay = document.getElementById('emp-detail-overlay');
+  if(overlay) overlay.remove();
+}
+
+/* ---- Access tab ---- */
+function adminAccessHtml(){
+  const usernames = Object.keys(DB.employees);
+  const depts = uniqueDepartments();
+  const rows = usernames.map(u=>{
+    const emp = DB.employees[u];
+    return `
+      <tr>
+        <td>${escapeHtml(emp.name)}</td>
+        <td style="font-family:var(--mono);color:var(--text-dim);">${escapeHtml(u)}</td>
+        <td style="font-family:var(--mono);color:var(--text-dim);">${escapeHtml(emp.password)}</td>
+        <td>${emp.department ? escapeHtml(emp.department) : '—'}</td>
+        <td><span class="role-pill ${emp.role}">${emp.role==='admin'?'Админ':'Оператор'}</span></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="adminDeleteEmployee('${escapeHtml(u)}')">Удалить доступ</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="card" style="margin-bottom:24px;max-width:680px;">
+      <div class="section-title" style="margin-bottom:2px;">Создать доступ сотруднику</div>
+      <p class="section-sub">Оператор входит в личный кабинет и запрашивает номера. Админ получает доступ к этой панели.</p>
+      <div class="form-row">
+        <div class="field">
+          <label>ФИО сотрудника</label>
+          <input id="new-emp-name" type="text" placeholder="Иванов И.И.">
+        </div>
+        <div class="field">
+          <label>Отдел</label>
+          <select id="new-emp-dept">
+            ${depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Логин</label>
+          <input id="new-emp-login" type="text" placeholder="ivanov">
+        </div>
+        <div class="field">
+          <label>Пароль</label>
+          <input id="new-emp-password" type="text" placeholder="Пароль">
+        </div>
+        <div class="field">
+          <label>Доступ</label>
+          <select id="new-emp-role">
+            <option value="operator">Оператор</option>
+            <option value="admin">Админ</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="adminCreateEmployee()">Создать доступ</button>
+      </div>
+    </div>
+
+    <div class="section-title">Сотрудники с доступом</div>
+    <div class="card" style="padding:8px 16px;">
+      ${usernames.length ? `
+      <table>
+        <thead><tr><th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Пока никому не выдан доступ</div>'}
+    </div>
+  `;
+}
+
+async function adminCreateEmployee(){
+  const name = document.getElementById('new-emp-name').value.trim();
+  const dept = document.getElementById('new-emp-dept').value.trim();
+  const loginVal = document.getElementById('new-emp-login').value.trim();
+  const pass = document.getElementById('new-emp-password').value;
+  const role = document.getElementById('new-emp-role').value;
+  if(!name || !loginVal || !pass){ showToast('Заполните ФИО, логин и пароль', 'danger'); return; }
+  if(loginVal === ADMIN_LOGIN){ showToast('Этот логин зарезервирован', 'danger'); return; }
+  if(DB.employees[loginVal]){ showToast('Такой логин уже существует', 'danger'); return; }
+  DB.employees[loginVal] = { password: pass, name, department: dept, role, norm: null };
+  log('created_employee', { username: loginVal });
+  await saveDB();
+  showToast('Доступ создан', 'success');
+  renderAdminTabContent();
+}
+
+async function adminDeleteEmployee(u){
+  if(!DB.employees[u]) return;
+  delete DB.employees[u];
+  // free up any messengers assigned to this employee
+  DB.messengers.forEach(m=>{
+    if(m.assignedTo===u){ m.status='available'; m.assignedTo=null; m.assignedName=null; m.assignedAt=null; m.lastCheck=null; }
+  });
+  log('deleted_employee', { username: u });
+  await saveDB();
+  showToast('Доступ удалён', 'success');
+  renderAdminTabContent();
+}
+
+/* ---- Quotas tab ---- */
+function adminQuotasHtml(){
+  const usernames = Object.keys(DB.employees);
+  const depts = uniqueDepartments();
+  const rows = usernames.map(u=>{
+    const emp = DB.employees[u];
+    const used = weeklyUsedCount(u);
+    return `
+      <tr>
+        <td>${escapeHtml(emp.name)}</td>
+        <td style="color:var(--text-dim)">${emp.department ? escapeHtml(emp.department) : '—'}</td>
+        <td>${emp.norm===null || emp.norm===undefined ? 'без ограничений' : emp.norm+' / нед.'}</td>
+        <td>${used}</td>
+        <td>
+          <div class="row-actions">
+            <input type="number" min="0" id="norm-input-${escapeHtml(u)}" placeholder="—" style="width:70px;padding:6px 8px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;" value="${emp.norm===null||emp.norm===undefined?'':emp.norm}">
+            <button class="btn btn-ghost btn-sm" onclick="setNormForEmployee('${escapeHtml(u)}')">Задать</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearNormForEmployee('${escapeHtml(u)}')">Снять</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="card" style="margin-bottom:24px;max-width:520px;">
+      <div class="section-title" style="margin-bottom:2px;">Норма на отдел</div>
+      <p class="section-sub">Применяется сразу ко всем сотрудникам выбранного отдела. Значения по сотрудникам ниже перезапишутся.</p>
+      <div class="form-row">
+        <div class="field">
+          <label>Отдел</label>
+          <select id="dept-norm-select">
+            ${depts.length ? depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('') : '<option value="">Нет отделов</option>'}
+          </select>
+        </div>
+        <div class="field" style="max-width:120px;">
+          <label>Норма / нед.</label>
+          <input id="dept-norm-value" type="number" min="0" placeholder="напр. 5">
+        </div>
+        <button class="btn btn-primary" onclick="setNormForDepartment()">Применить к отделу</button>
+      </div>
+    </div>
+
+    <div class="section-title">Норма по сотрудникам</div>
+    <p class="section-sub">Неделя считается с понедельника 00:00. Пустое значение = без ограничений.</p>
+    <div class="card" style="padding:8px 16px;">
+      ${usernames.length ? `
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Отдел</th><th>Текущая норма</th><th>Использовано на этой неделе</th><th>Изменить</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Сотрудники ещё не добавлены</div>'}
+    </div>
+  `;
+}
+
+async function setNormForEmployee(u){
+  const input = document.getElementById('norm-input-'+u);
+  const val = input.value.trim();
+  if(!DB.employees[u]) return;
+  DB.employees[u].norm = val==='' ? null : Math.max(0, parseInt(val,10));
+  await saveDB();
+  showToast('Норма обновлена для '+DB.employees[u].name, 'success');
+  renderAdminTabContent();
+}
+
+async function clearNormForEmployee(u){
+  if(!DB.employees[u]) return;
+  DB.employees[u].norm = null;
+  await saveDB();
+  showToast('Ограничение снято', 'success');
+  renderAdminTabContent();
+}
+
+async function setNormForDepartment(){
+  const dept = document.getElementById('dept-norm-select').value;
+  const val = document.getElementById('dept-norm-value').value.trim();
+  if(!dept){ showToast('Нет отделов для применения нормы', 'danger'); return; }
+  const norm = val==='' ? null : Math.max(0, parseInt(val,10));
+  let count = 0;
+  Object.keys(DB.employees).forEach(u=>{
+    if(DB.employees[u].department === dept){ DB.employees[u].norm = norm; count++; }
+  });
+  await saveDB();
+  showToast('Норма применена к '+count+' сотрудникам отдела '+dept, 'success');
+  renderAdminTabContent();
+}
+
+/* ---- Excess requests tab ---- */
+function adminExcessHtml(){
+  const pending = DB.excessRequests.filter(r=>r.status==='pending').sort((a,b)=>a.requestedAt-b.requestedAt);
+  const history = DB.excessRequests.filter(r=>r.status!=='pending').sort((a,b)=>b.resolvedAt-a.resolvedAt);
+
+  const pendingRows = pending.map(r=>{
+    const availableForType = DB.messengers.filter(m=>m.status==='available' && m.type===r.type);
+    const selectOptions = availableForType.map(m=>`<option value="${m.id}">${escapeHtml(m.phone)}</option>`).join('');
+    return `
+      <tr>
+        <td>${escapeHtml(r.name)}</td>
+        <td style="color:var(--text-dim)">${r.department ? escapeHtml(r.department) : '—'}</td>
+        <td><span class="tbadge ${r.type}"><span class="dot"></span>${typeLabel(r.type)}</span></td>
+        <td>${fmtDateTime(r.requestedAt)}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" onclick="approveExcessRequest('${r.id}','random')">Выдать случайный</button>
+            ${availableForType.length ? `
+              <select id="excess-select-${r.id}" style="padding:6px 8px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12.5px;">
+                ${selectOptions}
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="approveExcessRequest('${r.id}','specific')">Выдать выбранный</button>
+            ` : '<span style="font-size:12px;color:var(--text-faint);">нет свободных номеров этого типа</span>'}
+            <button class="btn btn-danger btn-sm" onclick="rejectExcessRequest('${r.id}')">Отклонить</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const historyRows = history.map(r=>`
+    <tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td><span class="tbadge ${r.type}"><span class="dot"></span>${typeLabel(r.type)}</span></td>
+      <td><span class="sbadge ${r.status==='approved'?'assigned':'blocked'}">${r.status==='approved'?'Выдано':'Отклонено'}</span></td>
+      <td>${r.assignedPhone ? escapeHtml(r.assignedPhone) : '—'}</td>
+      <td>${fmtDateTime(r.resolvedAt)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="section-title">Запросы сверх нормы</div>
+    <p class="section-sub">Сотрудник исчерпал недельную норму и запросил номер дополнительно. Решение принимает администратор.</p>
+    <div class="card" style="padding:8px 16px;margin-bottom:28px;">
+      ${pending.length ? `
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Отдел</th><th>Тип</th><th>Время запроса</th><th></th></tr></thead>
+        <tbody>${pendingRows}</tbody>
+      </table>` : '<div class="empty-state">Нет ожидающих запросов</div>'}
+    </div>
+
+    <div class="section-title">История решений</div>
+    <div class="card" style="padding:8px 16px;">
+      ${history.length ? `
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Тип</th><th>Решение</th><th>Номер</th><th>Когда</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>` : '<div class="empty-state">Пока пусто</div>'}
+    </div>
+  `;
+}
+
+async function approveExcessRequest(reqId, mode){
+  const r = DB.excessRequests.find(x=>x.id===reqId);
+  if(!r || r.status!=='pending') return;
+  let m = null;
+  if(mode==='random'){
+    m = DB.messengers.find(x=>x.status==='available' && x.type===r.type);
+    if(!m){ showToast('Нет свободных номеров этого типа', 'danger'); return; }
+  } else {
+    const select = document.getElementById('excess-select-'+reqId);
+    const id = select ? select.value : null;
+    m = DB.messengers.find(x=>x.id===id && x.status==='available');
+    if(!m){ showToast('Выберите свободный номер', 'danger'); return; }
+  }
+  const emp = DB.employees[r.username];
+  const now = Date.now();
+  m.status = 'assigned';
+  m.assignedTo = r.username;
+  m.assignedName = emp ? emp.name : r.username;
+  m.lastHolder = r.username;
+  m.lastHolderName = emp ? emp.name : r.username;
+  m.assignedAt = now;
+  m.lastCheck = now;
+  m.blockedAt = null;
+  log('assigned', { username: r.username, messengerId: m.id, phone: m.phone, type: m.type, source:'excess' });
+  r.status = 'approved';
+  r.resolvedBy = actingAdminUsername();
+  r.resolvedAt = now;
+  r.assignedMessengerId = m.id;
+  r.assignedPhone = m.phone;
+  addNotification(r.username, 'Вам согласована выдача сверх нормы: номер '+m.phone+' ('+typeLabel(m.type)+')');
+  await saveDB();
+  showToast('Номер '+m.phone+' выдан сотруднику '+ (emp?emp.name:r.username), 'success');
+  renderAdminTabContent();
+}
+
+async function rejectExcessRequest(reqId){
+  const r = DB.excessRequests.find(x=>x.id===reqId);
+  if(!r || r.status!=='pending') return;
+  r.status = 'rejected';
+  r.resolvedBy = actingAdminUsername();
+  r.resolvedAt = Date.now();
+  addNotification(r.username, 'Ваш запрос сверх нормы на '+typeLabel(r.type)+' отклонён администратором');
+  await saveDB();
+  showToast('Запрос отклонён', 'success');
+  renderAdminTabContent();
+}
+
+/* ================= INIT ================= */
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState !== 'visible') return;
+  if(currentRole==='employee'){
+    await refreshFromStorage();
+    const changed = processTempBlockExpirations();
+    if(changed) await saveDB();
+    if(!popupOpen) renderEmployee(); else maybeShowPopupForEmployee();
+  } else if(currentRole==='admin'){
+    await refreshFromStorage();
+    const changed = processTempBlockExpirations();
+    if(changed) await saveDB();
+    if(!isAdminFormActive()){
+      renderAdminTabContent();
+    }
+    updatePendingBadge();
+  }
+});
+
+document.addEventListener('click', (e)=>{
+  const dd = document.getElementById('bell-dropdown');
+  const bellWrap = document.querySelector('.bell-wrap');
+  if(dd && !dd.classList.contains('hidden') && bellWrap && !bellWrap.contains(e.target)){
+    dd.classList.add('hidden');
+  }
+});
+
+(async function init(){
+  DB = await loadDB();
+  processTempBlockExpirations();
+  renderLogin();
+  setupRealtimeSync();
+})();
+</script>
+</body>
+</html>
