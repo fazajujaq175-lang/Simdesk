@@ -295,7 +295,7 @@
 <script>
 /* ================= DATA LAYER ================= */
 /* === НАСТРОЙКА SUPABASE — вставьте свои значения из Settings → API === */
-const SUPABASE_URL = 'https://xjaztwawglpugciskddn.supabase.co';        // например: https://xxxxxxxx.supabase.co
+const SUPABASE_URL = ' https://xjaztwawglpugciskddn.supabase.co';        // например: https://xxxxxxxx.supabase.co
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqYXp0d2F3Z2xwdWdjaXNrZGRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MTUyMTMsImV4cCI6MjEwMDk5MTIxM30.JOyH7oM_XWRvMYlUwD9xZvx6WXRlXwpA9zuPNTT4KGQ'; // именно "anon public", НЕ "service_role"!
 /* ======================================================================= */
 
@@ -320,6 +320,9 @@ let msgFilterEmployee = 'all';
 let msgFilterDateFrom = '';
 let msgFilterDateTo = '';
 let msgFiltersPanelOpen = false;
+let bulkDeleteMode = false;
+let bulkDeleteSelected = new Set();
+let lastRenderedMsgIds = [];
 let popupOpen = false;
 let adminPollInterval = null;
 
@@ -339,7 +342,19 @@ function normalizeDB(db){
     const e = db.employees[u];
     if(e.department===undefined) e.department = '';
     if(e.role===undefined) e.role = 'operator';
-    if(e.norm===undefined) e.norm = null;
+    if(e.normByType===undefined){
+      // миграция со старой единой нормы (число или null) на норму по каждому типу
+      if(typeof e.norm === 'number'){
+        e.normByType = { telegram: e.norm, whatsapp: e.norm, max: e.norm };
+      } else {
+        e.normByType = { telegram: null, whatsapp: null, max: null };
+      }
+    }
+    if(e.normByType.telegram===undefined) e.normByType.telegram = null;
+    if(e.normByType.whatsapp===undefined) e.normByType.whatsapp = null;
+    if(e.normByType.max===undefined) e.normByType.max = null;
+    if(e.lastLoginAt===undefined) e.lastLoginAt = null;
+    delete e.norm;
   });
   db.messengers.forEach(m=>{
     if(m.tempBlockKind===undefined) m.tempBlockKind = null;
@@ -546,17 +561,33 @@ function getWeekStartTs(d){
   return date.getTime();
 }
 
-function weeklyUsedCount(username){
+function weeklyUsedCount(username, type){
   const weekStart = getWeekStartTs();
-  return DB.log.filter(e=>e.event==='assigned' && e.username===username && e.ts>=weekStart).length;
+  return DB.log.filter(e=>e.event==='assigned' && e.username===username && e.ts>=weekStart && (!type || e.type===type)).length;
 }
 
-function getQuotaStatus(username){
+function getQuotaStatus(username, type){
   const emp = DB.employees[username];
-  const norm = emp ? emp.norm : null;
-  const used = weeklyUsedCount(username);
+  const norm = emp && emp.normByType ? emp.normByType[type] : null;
+  const used = weeklyUsedCount(username, type);
   const hasQuota = (norm===null || norm===undefined) || used < norm;
   return { norm, used, hasQuota };
+}
+
+const STALE_CHECK_DAYS = 5;
+function getEmployeeStaleWarning(username){
+  const emp = DB.employees[username];
+  if(!emp) return null;
+  const mine = DB.messengers.filter(m=>m.assignedTo===username && m.status==='assigned');
+  if(!mine.length) return null;
+  if(!emp.lastLoginAt){
+    return { days: null, neverLoggedIn: true, count: mine.length };
+  }
+  const daysSince = (Date.now() - emp.lastLoginAt) / (24*3600000);
+  if(daysSince >= STALE_CHECK_DAYS){
+    return { days: Math.floor(daysSince), neverLoggedIn: false, count: mine.length };
+  }
+  return null;
 }
 
 function actingAdminUsername(){
@@ -620,7 +651,7 @@ function getPortalMode(){
   return FIXED_PORTAL;
 }
 
-function handleLogin(){
+async function handleLogin(){
   const u = document.getElementById('login-username').value.trim();
   const p = document.getElementById('login-password').value;
   const portal = getPortalMode();
@@ -634,11 +665,15 @@ function handleLogin(){
   if(emp && emp.password === p){
     if(emp.role === 'admin'){
       if(portal!=='admin'){ renderLogin('Эта страница только для сотрудников. Обратитесь к администратору за отдельным адресом админки.'); return; }
+      emp.lastLoginAt = Date.now();
+      await saveDB();
       currentRole = 'admin'; currentUser = u;
       renderAdmin();
       return;
     }
     if(portal!=='operator'){ renderLogin('Эта страница только для администраторов.'); return; }
+    emp.lastLoginAt = Date.now();
+    await saveDB();
     currentRole = 'employee'; currentUser = u;
     renderEmployee();
     startEmployeeClock();
@@ -662,7 +697,9 @@ function renderEmployee(){
 
   const availCounts = { telegram:0, whatsapp:0, max:0 };
   DB.messengers.forEach(m=>{ if(m.status==='available') availCounts[m.type]++; });
-  const quota = getQuotaStatus(currentUser);
+  const quotaTG = getQuotaStatus(currentUser, 'telegram');
+  const quotaWA = getQuotaStatus(currentUser, 'whatsapp');
+  const quotaMAX = getQuotaStatus(currentUser, 'max');
   const myNotifications = DB.notifications.filter(n=>n.username===currentUser).sort((a,b)=>b.ts-a.ts);
   const unreadCount = myNotifications.filter(n=>!n.read).length;
 
@@ -685,13 +722,14 @@ function renderEmployee(){
       <div class="section-title">Запросить мессенджер</div>
       <p class="section-sub">Номер выдаётся автоматически из общего пула. Раз в час нужно будет подтвердить, что аккаунт ещё активен.</p>
       <div class="quota-bar">
-        <span class="quota-pill">Норма на неделю: <b>${quota.norm===null||quota.norm===undefined?'без ограничений':quota.norm}</b></span>
-        <span class="quota-pill">Использовано: <b>${quota.used}</b></span>
+        <span class="quota-pill">Telegram: <b>${quotaTG.used}${quotaTG.norm===null||quotaTG.norm===undefined?'':' / '+quotaTG.norm}</b></span>
+        <span class="quota-pill">WhatsApp: <b>${quotaWA.used}${quotaWA.norm===null||quotaWA.norm===undefined?'':' / '+quotaWA.norm}</b></span>
+        <span class="quota-pill">MAX: <b>${quotaMAX.used}${quotaMAX.norm===null||quotaMAX.norm===undefined?'':' / '+quotaMAX.norm}</b></span>
       </div>
       <div class="grid-3" style="margin-bottom:32px;">
-        ${requestCardHtml('telegram', availCounts.telegram, quota)}
-        ${requestCardHtml('whatsapp', availCounts.whatsapp, quota)}
-        ${requestCardHtml('max', availCounts.max, quota)}
+        ${requestCardHtml('telegram', availCounts.telegram, quotaTG)}
+        ${requestCardHtml('whatsapp', availCounts.whatsapp, quotaWA)}
+        ${requestCardHtml('max', availCounts.max, quotaMAX)}
       </div>
 
       <div class="section-title">Мои мессенджеры</div>
@@ -777,7 +815,7 @@ function requestCardHtml(type, count, quota){
 }
 
 async function requestMessenger(type){
-  const quota = getQuotaStatus(currentUser);
+  const quota = getQuotaStatus(currentUser, type);
   if(!quota.hasQuota){
     return requestExcessMessenger(type);
   }
@@ -1153,6 +1191,8 @@ function adminMessengersHtml(){
     list = list.filter(m=>m.createdAt && m.createdAt<=toTs);
   }
 
+  lastRenderedMsgIds = list.map(m=>m.id);
+
   const rows = list.map(m=>{
     let statusCell = `<span class="sbadge ${m.status}">${statusLabel(m.status)}</span>`;
     if(m.status==='temp_blocked'){
@@ -1162,6 +1202,7 @@ function adminMessengersHtml(){
     }
     return `
     <tr>
+      ${bulkDeleteMode ? `<td><input type="checkbox" ${bulkDeleteSelected.has(m.id)?'checked':''} onclick="toggleBulkSelect('${m.id}')"></td>` : ''}
       <td class="sim-phone" style="font-family:var(--mono);">${escapeHtml(m.phone)}</td>
       <td><span class="tbadge ${m.type}"><span class="dot"></span>${typeLabel(m.type)}</span></td>
       <td>${statusCell}</td>
@@ -1173,6 +1214,7 @@ function adminMessengersHtml(){
           ${m.status==='assigned' ? `<button class="btn btn-ghost btn-sm" onclick="adminRevoke('${m.id}')">Отозвать</button>` : ''}
           ${m.status==='blocked' ? `<button class="btn btn-ghost btn-sm" onclick="adminReturnToPool('${m.id}')">Вернуть в пул</button>` : ''}
           ${m.status==='temp_blocked' ? `<button class="btn btn-ghost btn-sm" onclick="adminClearTempBlock('${m.id}')">Снять досрочно</button>` : ''}
+          <button class="icon-btn" title="История" onclick="openMessengerHistoryModal('${m.id}')">👁</button>
           <button class="icon-btn" title="Изменить" onclick="openEditMessengerModal('${m.id}')">✎</button>
           <button class="icon-btn danger-hover" title="Удалить" onclick="deleteMessenger('${m.id}')">🗑</button>
         </div>
@@ -1233,7 +1275,18 @@ function adminMessengersHtml(){
       <span style="flex:1;"></span>
       <button class="btn btn-ghost btn-sm" onclick="toggleMsgFiltersPanel()">${msgFiltersPanelOpen?'Скрыть фильтры ▲':'Ещё фильтры ▼'}</button>
       <button class="btn btn-ghost btn-sm" onclick="exportMessengersToExcel()">⬇ Экспорт в Excel</button>
+      <button class="btn ${bulkDeleteMode?'btn-danger':'btn-ghost'} btn-sm" onclick="toggleBulkDeleteMode()">${bulkDeleteMode?'Отменить выбор':'Массовое удаление'}</button>
     </div>
+
+    ${bulkDeleteMode ? `
+    <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--text-dim);">Выбрано: <b style="color:var(--text)">${bulkDeleteSelected.size}</b></span>
+      <button class="btn btn-ghost btn-sm" onclick="selectAllVisibleMsg()">Выбрать все под фильтром (${list.length})</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()">Снять выбор</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-danger btn-sm" onclick="confirmBulkDelete()">Удалить выбранные</button>
+    </div>
+    ` : ''}
 
     ${msgFiltersPanelOpen ? `
     <div class="card" style="margin-bottom:16px;">
@@ -1261,7 +1314,7 @@ function adminMessengersHtml(){
     <div class="card" style="padding:8px 16px;">
       ${list.length ? `
       <table>
-        <thead><tr><th>Номер</th><th>Тип</th><th>Статус</th><th>Сотрудник</th><th>Добавлен</th><th>Выдан</th><th></th></tr></thead>
+        <thead><tr>${bulkDeleteMode?'<th></th>':''}<th>Номер</th><th>Тип</th><th>Статус</th><th>Сотрудник</th><th>Добавлен</th><th>Выдан</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
     </div>
@@ -1441,6 +1494,8 @@ async function adminClearTempBlock(id){
 function openEditMessengerModal(id){
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
+  const currentEmp = m.assignedTo || '';
+  const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'edit-msg-overlay';
@@ -1455,9 +1510,18 @@ function openEditMessengerModal(id){
           <option value="max" ${m.type==='max'?'selected':''}>MAX</option>
         </select>
       </div>
-      <div class="field" style="margin-bottom:18px;">
+      <div class="field" style="margin-bottom:14px;">
         <label>Номер телефона</label>
         <input id="edit-msg-phone" type="text" value="${escapeHtml(m.phone)}">
+      </div>
+      <div class="field" style="margin-bottom:18px;">
+        <label>Сотрудник</label>
+        <select id="edit-msg-employee">
+          <option value="">— Не выдан (свободен) —</option>
+          ${employeeOptions.map(u=>`<option value="${escapeHtml(u)}" ${currentEmp===u?'selected':''}>${escapeHtml(DB.employees[u].name)}</option>`).join('')}
+        </select>
+        <input type="hidden" id="edit-msg-employee-initial" value="${escapeHtml(currentEmp)}">
+        <p class="section-sub" style="margin:6px 0 0;">Смена сотрудника здесь сразу выдаёт номер выбранному человеку (статус станет «Выдан», часовой таймер сбросится) или освобождает его в общий пул.</p>
       </div>
       <div class="popup-actions">
         <button class="btn btn-ghost" onclick="closeEditMessengerModal()">Отмена</button>
@@ -1481,6 +1545,29 @@ async function saveEditMessenger(id){
   if(!phone){ showToast('Укажите номер телефона', 'danger'); return; }
   m.type = type; m.phone = phone;
   log('edited_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+
+  const newEmpUser = document.getElementById('edit-msg-employee').value;
+  const initialEmpUser = document.getElementById('edit-msg-employee-initial').value;
+  if(newEmpUser !== initialEmpUser){
+    if(newEmpUser){
+      const emp = DB.employees[newEmpUser];
+      if(!emp){ showToast('Сотрудник не найден', 'danger'); return; }
+      const now = Date.now();
+      m.status = 'assigned';
+      m.assignedTo = newEmpUser; m.assignedName = emp.name;
+      m.lastHolder = newEmpUser; m.lastHolderName = emp.name;
+      m.assignedAt = now; m.lastCheck = now;
+      m.blockedAt = null; m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
+      log('admin_reassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, to:newEmpUser });
+    } else {
+      m.status = 'available';
+      m.assignedTo = null; m.assignedName = null;
+      m.assignedAt = null; m.lastCheck = null;
+      m.blockedAt = null; m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
+      log('admin_unassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+    }
+  }
+
   await saveDB();
   closeEditMessengerModal();
   showToast('Номер обновлён', 'success');
@@ -1499,6 +1586,111 @@ async function deleteMessenger(id){
   renderAdminTabContent();
 }
 
+function toggleBulkDeleteMode(){
+  bulkDeleteMode = !bulkDeleteMode;
+  bulkDeleteSelected = new Set();
+  renderAdminTabContent();
+}
+
+function toggleBulkSelect(id){
+  if(bulkDeleteSelected.has(id)) bulkDeleteSelected.delete(id); else bulkDeleteSelected.add(id);
+  renderAdminTabContent();
+}
+
+function selectAllVisibleMsg(){
+  lastRenderedMsgIds.forEach(id=>bulkDeleteSelected.add(id));
+  renderAdminTabContent();
+}
+
+function clearBulkSelection(){
+  bulkDeleteSelected = new Set();
+  renderAdminTabContent();
+}
+
+async function confirmBulkDelete(){
+  if(!bulkDeleteSelected.size){ showToast('Ничего не выбрано', 'danger'); return; }
+  const ok = window.confirm('Удалить выбранные номера ('+bulkDeleteSelected.size+' шт) безвозвратно? Это действие нельзя отменить.');
+  if(!ok) return;
+  const ids = Array.from(bulkDeleteSelected);
+  DB.messengers = DB.messengers.filter(m=>!bulkDeleteSelected.has(m.id));
+  log('bulk_delete', { username: actingAdminUsername(), count: ids.length });
+  await saveDB();
+  bulkDeleteMode = false;
+  bulkDeleteSelected = new Set();
+  showToast('Удалено номеров: '+ids.length, 'success');
+  renderAdminTabContent();
+}
+
+const LOG_EVENT_LABELS = {
+  created_messenger: 'Номер добавлен в базу',
+  bulk_import: 'Номер добавлен в базу (загрузка из Excel)',
+  assigned: 'Выдан сотруднику',
+  confirmed_active: 'Сотрудник подтвердил: номер активен',
+  blocked: 'Помечен как заблокирован (навсегда)',
+  temp_blocked: 'Установлена временная блокировка',
+  temp_block_expired: 'Временная блокировка снята автоматически',
+  temp_block_cleared_by_admin: 'Временная блокировка снята администратором',
+  admin_revoked: 'Отозван администратором, возвращён в пул',
+  admin_returned: 'Возвращён в пул администратором',
+  edited_messenger: 'Изменены данные номера (тип/номер)',
+  admin_reassigned: 'Переназначен администратором',
+  admin_unassigned: 'Снят с сотрудника администратором'
+};
+
+function describeLogEntry(e){
+  const empName = (u)=> DB.employees[u] ? DB.employees[u].name : u;
+  let label = LOG_EVENT_LABELS[e.event] || e.event;
+  if(e.event==='assigned' && e.username) label += ': ' + empName(e.username);
+  if(e.event==='confirmed_active' && e.username) label += ' (' + empName(e.username) + ')';
+  if(e.event==='blocked' && e.username) label += ' — отметил(а) ' + empName(e.username);
+  if(e.event==='temp_blocked'){
+    label += e.kind==='whatsapp6h' ? ' (WhatsApp, 6ч)' : e.kind==='max10d' ? ' (MAX, 10 дней)' : '';
+    if(e.username) label += ' — ' + empName(e.username);
+  }
+  if(e.event==='temp_block_expired'){
+    label += e.kind==='whatsapp6h' ? ' (WhatsApp, вернулся к сотруднику)' : e.kind==='max10d' ? ' (MAX, вернулся в общий пул)' : '';
+  }
+  if(e.event==='admin_reassigned' && e.to) label += ': ' + empName(e.to);
+  return label;
+}
+
+function openMessengerHistoryModal(id){
+  const m = DB.messengers.find(x=>x.id===id);
+  if(!m) return;
+  const entries = DB.log.filter(e=>e.messengerId===id).sort((a,b)=>a.ts-b.ts);
+  const rows = entries.map(e=>`
+    <tr>
+      <td style="white-space:nowrap;color:var(--text-dim);font-size:12px;">${fmtDateTime(e.ts)}</td>
+      <td>${escapeHtml(describeLogEntry(e))}</td>
+    </tr>
+  `).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'msg-history-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card" style="max-width:520px;">
+      <h3>История номера ${escapeHtml(m.phone)}</h3>
+      <p class="section-sub" style="margin-top:-10px;">${typeLabel(m.type)} · сейчас: <span class="sbadge ${m.status}" style="vertical-align:middle;">${statusLabel(m.status)}</span></p>
+      ${entries.length ? `
+      <div style="max-height:340px;overflow-y:auto;">
+        <table>
+          <thead><tr><th>Когда</th><th>Событие</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : '<div class="empty-state">Пока нет записей</div>'}
+      <div class="popup-actions" style="margin-top:18px;">
+        <button class="btn btn-primary" style="width:100%;" onclick="closeMessengerHistoryModal()">Закрыть</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeMessengerHistoryModal(){
+  const overlay = document.getElementById('msg-history-overlay');
+  if(overlay) overlay.remove();
+}
+
 async function updateInterval(val){
   const n = parseInt(val,10);
   if(!n || n<1) return;
@@ -1510,15 +1702,28 @@ async function updateInterval(val){
 /* ---- Analytics tab ---- */
 function adminAnalyticsHtml(){
   const usernames = Object.keys(DB.employees);
+  const staleWarnings = {};
+  usernames.forEach(u=>{ staleWarnings[u] = getEmployeeStaleWarning(u); });
+  const staleCount = Object.values(staleWarnings).filter(Boolean).length;
+
   const rows = usernames.map(u=>{
     const emp = DB.employees[u];
     const totalAssigned = DB.log.filter(e=>e.event==='assigned' && e.username===u).length;
     const totalBlocked = DB.log.filter(e=>e.event==='blocked' && e.username===u).length;
     const activeNow = DB.messengers.filter(m=>m.status==='assigned' && m.assignedTo===u).length;
     const rate = totalAssigned ? Math.round((totalBlocked/totalAssigned)*100) : 0;
+    const warn = staleWarnings[u];
+    const warnText = warn
+      ? (warn.neverLoggedIn
+          ? `Сотрудник ни разу не заходил в систему, но за ним числится ${warn.count} активных номеров. Проверьте — возможно, доступ создан по ошибке или сотрудник ещё не приступил к работе.`
+          : `Сотрудник не заходил в систему уже ${warn.days} дн. (${warn.count} активных номеров). Проверьте — возможно, уволен или переведён. Номера нужно отозвать вручную во вкладке «Мессенджеры».`)
+      : '';
+    const warnIcon = warn
+      ? `<span title="${escapeHtml(warnText)}" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;background:rgba(240,185,77,0.16);color:var(--warning);font-weight:800;font-size:12px;cursor:help;margin-left:8px;">!</span>`
+      : '';
     return `
       <tr>
-        <td>${escapeHtml(emp.name)}</td>
+        <td>${escapeHtml(emp.name)}${warnIcon}</td>
         <td style="color:var(--text-dim)">${escapeHtml(u)}</td>
         <td>${activeNow}</td>
         <td>${totalAssigned}</td>
@@ -1533,10 +1738,11 @@ function adminAnalyticsHtml(){
   const totalBlockedAll = DB.log.filter(e=>e.event==='blocked').length;
 
   return `
-    <div class="grid-3" style="margin-bottom:24px;">
+    <div class="grid-4" style="margin-bottom:24px;">
       <div class="stat-card"><div class="stat-num">${usernames.length}</div><div class="stat-label">Сотрудников с доступом</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--success)">${totalAssignedAll}</div><div class="stat-label">Всего выдач</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--danger)">${totalBlockedAll}</div><div class="stat-label">Всего блокировок</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${staleCount?'var(--warning)':'var(--text-dim)'}">${staleCount}</div><div class="stat-label">Требуют проверки (5+ дн.)</div></div>
     </div>
     <div class="section-title">По сотрудникам</div>
     <p class="section-sub">Статистика считается по журналу событий и не зависит от текущего статуса номера.</p>
@@ -1569,6 +1775,7 @@ function openEmployeeDetail(u){
     <div class="modal-card" style="max-width:560px;">
       <h3>${escapeHtml(emp.name)}</h3>
       <p class="section-sub" style="margin-top:-10px;">Логин: <b style="color:var(--text)">${escapeHtml(u)}</b> · Отдел: ${emp.department?escapeHtml(emp.department):'—'} · <span class="role-pill ${emp.role}">${emp.role==='admin'?'Админ':'Оператор'}</span></p>
+      <p class="section-sub" style="margin-top:-8px;">Последний вход: <b style="color:var(--text)">${emp.lastLoginAt ? fmtDateTime(emp.lastLoginAt) : 'ни разу не заходил'}</b></p>
       ${related.length ? `
       <div style="max-height:320px;overflow-y:auto;">
         <table>
@@ -1663,7 +1870,7 @@ async function adminCreateEmployee(){
   if(!name || !loginVal || !pass){ showToast('Заполните ФИО, логин и пароль', 'danger'); return; }
   if(loginVal === ADMIN_LOGIN){ showToast('Этот логин зарезервирован', 'danger'); return; }
   if(DB.employees[loginVal]){ showToast('Такой логин уже существует', 'danger'); return; }
-  DB.employees[loginVal] = { password: pass, name, department: dept, role, norm: null };
+  DB.employees[loginVal] = { password: pass, name, department: dept, role, normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null };
   log('created_employee', { username: loginVal });
   await saveDB();
   showToast('Доступ создан', 'success');
@@ -1689,18 +1896,39 @@ function adminQuotasHtml(){
   const depts = uniqueDepartments();
   const rows = usernames.map(u=>{
     const emp = DB.employees[u];
-    const used = weeklyUsedCount(u);
+    const usedTG = weeklyUsedCount(u, 'telegram');
+    const usedWA = weeklyUsedCount(u, 'whatsapp');
+    const usedMAX = weeklyUsedCount(u, 'max');
+    const n = emp.normByType || {telegram:null,whatsapp:null,max:null};
     return `
       <tr>
         <td>${escapeHtml(emp.name)}</td>
         <td style="color:var(--text-dim)">${emp.department ? escapeHtml(emp.department) : '—'}</td>
-        <td>${emp.norm===null || emp.norm===undefined ? 'без ограничений' : emp.norm+' / нед.'}</td>
-        <td>${used}</td>
         <td>
           <div class="row-actions">
-            <input type="number" min="0" id="norm-input-${escapeHtml(u)}" placeholder="—" style="width:70px;padding:6px 8px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;" value="${emp.norm===null||emp.norm===undefined?'':emp.norm}">
-            <button class="btn btn-ghost btn-sm" onclick="setNormForEmployee('${escapeHtml(u)}')">Задать</button>
-            <button class="btn btn-ghost btn-sm" onclick="clearNormForEmployee('${escapeHtml(u)}')">Снять</button>
+            <span class="tbadge telegram" style="min-width:70px;justify-content:center;"><span class="dot"></span>TG</span>
+            <input type="number" min="0" id="norm-tg-${escapeHtml(u)}" placeholder="∞" style="width:56px;padding:6px 6px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;" value="${n.telegram===null||n.telegram===undefined?'':n.telegram}">
+            <span style="font-size:11px;color:var(--text-faint);">исп. ${usedTG}</span>
+          </div>
+        </td>
+        <td>
+          <div class="row-actions">
+            <span class="tbadge whatsapp" style="min-width:70px;justify-content:center;"><span class="dot"></span>WA</span>
+            <input type="number" min="0" id="norm-wa-${escapeHtml(u)}" placeholder="∞" style="width:56px;padding:6px 6px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;" value="${n.whatsapp===null||n.whatsapp===undefined?'':n.whatsapp}">
+            <span style="font-size:11px;color:var(--text-faint);">исп. ${usedWA}</span>
+          </div>
+        </td>
+        <td>
+          <div class="row-actions">
+            <span class="tbadge max" style="min-width:70px;justify-content:center;"><span class="dot"></span>MAX</span>
+            <input type="number" min="0" id="norm-max-${escapeHtml(u)}" placeholder="∞" style="width:56px;padding:6px 6px;background:var(--panel-3);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;" value="${n.max===null||n.max===undefined?'':n.max}">
+            <span style="font-size:11px;color:var(--text-faint);">исп. ${usedMAX}</span>
+          </div>
+        </td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" onclick="setNormForEmployee('${escapeHtml(u)}')">Сохранить</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearNormForEmployee('${escapeHtml(u)}')">Снять все</button>
           </div>
         </td>
       </tr>
@@ -1708,65 +1936,91 @@ function adminQuotasHtml(){
   }).join('');
 
   return `
-    <div class="card" style="margin-bottom:24px;max-width:520px;">
+    <div class="card" style="margin-bottom:24px;max-width:640px;">
       <div class="section-title" style="margin-bottom:2px;">Норма на отдел</div>
-      <p class="section-sub">Применяется сразу ко всем сотрудникам выбранного отдела. Значения по сотрудникам ниже перезапишутся.</p>
+      <p class="section-sub">Применяется сразу ко всем сотрудникам выбранного отдела по каждому типу мессенджера отдельно. Пустое поле — не менять норму по этому типу для отдела.</p>
       <div class="form-row">
         <div class="field">
           <label>Отдел</label>
           <select id="dept-norm-select">
-            ${depts.length ? depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('') : '<option value="">Нет отделов</option>'}
+            ${depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
           </select>
         </div>
-        <div class="field" style="max-width:120px;">
-          <label>Норма / нед.</label>
-          <input id="dept-norm-value" type="number" min="0" placeholder="напр. 5">
+        <div class="field" style="max-width:100px;">
+          <label>Telegram</label>
+          <input id="dept-norm-tg" type="number" min="0" placeholder="∞">
+        </div>
+        <div class="field" style="max-width:100px;">
+          <label>WhatsApp</label>
+          <input id="dept-norm-wa" type="number" min="0" placeholder="∞">
+        </div>
+        <div class="field" style="max-width:100px;">
+          <label>MAX</label>
+          <input id="dept-norm-max" type="number" min="0" placeholder="∞">
         </div>
         <button class="btn btn-primary" onclick="setNormForDepartment()">Применить к отделу</button>
       </div>
     </div>
 
     <div class="section-title">Норма по сотрудникам</div>
-    <p class="section-sub">Неделя считается с понедельника 00:00. Пустое значение = без ограничений.</p>
+    <p class="section-sub">Неделя считается с понедельника 00:00. Пустое поле = без ограничений для этого типа мессенджера.</p>
     <div class="card" style="padding:8px 16px;">
       ${usernames.length ? `
       <table>
-        <thead><tr><th>Сотрудник</th><th>Отдел</th><th>Текущая норма</th><th>Использовано на этой неделе</th><th>Изменить</th></tr></thead>
+        <thead><tr><th>Сотрудник</th><th>Отдел</th><th>Telegram</th><th>WhatsApp</th><th>MAX</th><th>Изменить</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Сотрудники ещё не добавлены</div>'}
     </div>
   `;
 }
 
+function parseNormInput(val){
+  const trimmed = String(val||'').trim();
+  return trimmed==='' ? null : Math.max(0, parseInt(trimmed,10));
+}
+
 async function setNormForEmployee(u){
-  const input = document.getElementById('norm-input-'+u);
-  const val = input.value.trim();
   if(!DB.employees[u]) return;
-  DB.employees[u].norm = val==='' ? null : Math.max(0, parseInt(val,10));
+  const tg = document.getElementById('norm-tg-'+u).value;
+  const wa = document.getElementById('norm-wa-'+u).value;
+  const max = document.getElementById('norm-max-'+u).value;
+  DB.employees[u].normByType = {
+    telegram: parseNormInput(tg),
+    whatsapp: parseNormInput(wa),
+    max: parseNormInput(max)
+  };
   await saveDB();
-  showToast('Норма обновлена для '+DB.employees[u].name, 'success');
+  showToast('Нормы обновлены для '+DB.employees[u].name, 'success');
   renderAdminTabContent();
 }
 
 async function clearNormForEmployee(u){
   if(!DB.employees[u]) return;
-  DB.employees[u].norm = null;
+  DB.employees[u].normByType = { telegram:null, whatsapp:null, max:null };
   await saveDB();
-  showToast('Ограничение снято', 'success');
+  showToast('Все ограничения сняты', 'success');
   renderAdminTabContent();
 }
 
 async function setNormForDepartment(){
   const dept = document.getElementById('dept-norm-select').value;
-  const val = document.getElementById('dept-norm-value').value.trim();
-  if(!dept){ showToast('Нет отделов для применения нормы', 'danger'); return; }
-  const norm = val==='' ? null : Math.max(0, parseInt(val,10));
+  if(!dept){ showToast('Выберите отдел', 'danger'); return; }
+  const tgRaw = document.getElementById('dept-norm-tg').value.trim();
+  const waRaw = document.getElementById('dept-norm-wa').value.trim();
+  const maxRaw = document.getElementById('dept-norm-max').value.trim();
+  if(tgRaw==='' && waRaw==='' && maxRaw===''){ showToast('Заполните хотя бы одно поле нормы', 'danger'); return; }
   let count = 0;
   Object.keys(DB.employees).forEach(u=>{
-    if(DB.employees[u].department === dept){ DB.employees[u].norm = norm; count++; }
+    const emp = DB.employees[u];
+    if(emp.department !== dept) return;
+    if(!emp.normByType) emp.normByType = { telegram:null, whatsapp:null, max:null };
+    if(tgRaw!=='') emp.normByType.telegram = parseNormInput(tgRaw);
+    if(waRaw!=='') emp.normByType.whatsapp = parseNormInput(waRaw);
+    if(maxRaw!=='') emp.normByType.max = parseNormInput(maxRaw);
+    count++;
   });
   await saveDB();
-  showToast('Норма применена к '+count+' сотрудникам отдела '+dept, 'success');
+  showToast('Нормы применены к '+count+' сотрудникам отдела '+dept, 'success');
   renderAdminTabContent();
 }
 
