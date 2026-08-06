@@ -295,7 +295,7 @@
 <script>
 /* ================= DATA LAYER ================= */
 /* === НАСТРОЙКА SUPABASE — вставьте свои значения из Settings → API === */
-const SUPABASE_URL = ' https://xjaztwawglpugciskddn.supabase.co';        // например: https://xxxxxxxx.supabase.co
+const SUPABASE_URL = 'https://xjaztwawglpugciskddn.supabase.co';        // например: https://xxxxxxxx.supabase.co
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqYXp0d2F3Z2xwdWdjaXNrZGRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MTUyMTMsImV4cCI6MjEwMDk5MTIxM30.JOyH7oM_XWRvMYlUwD9xZvx6WXRlXwpA9zuPNTT4KGQ'; // именно "anon public", НЕ "service_role"!
 /* ======================================================================= */
 
@@ -834,7 +834,7 @@ async function requestMessenger(type){
   found.assignedAt = now;
   found.lastCheck = now;
   found.blockedAt = null;
-  log('assigned', { username: currentUser, messengerId: found.id, phone: found.phone, type: found.type });
+  log('assigned', { username: currentUser, messengerId: found.id, phone: found.phone, type: found.type, issuedBy: 'automation' });
   await saveDB();
   showToast(typeLabel(type)+' номер '+found.phone+' закреплён за вами', 'success');
   renderEmployee();
@@ -1637,10 +1637,22 @@ const LOG_EVENT_LABELS = {
   admin_unassigned: 'Снят с сотрудника администратором'
 };
 
+function actorDisplayName(username){
+  if(!username || username==='automation') return 'Автоматизация';
+  if(username==='admin') return 'Администратор (FarmerAdmin)';
+  const emp = DB.employees[username];
+  return emp ? emp.name : username;
+}
+
+const ADMIN_ACTOR_EVENTS = ['admin_revoked','admin_returned','created_messenger','bulk_import','edited_messenger','temp_block_cleared_by_admin','admin_unassigned'];
+
 function describeLogEntry(e){
   const empName = (u)=> DB.employees[u] ? DB.employees[u].name : u;
   let label = LOG_EVENT_LABELS[e.event] || e.event;
-  if(e.event==='assigned' && e.username) label += ': ' + empName(e.username);
+  if(e.event==='assigned' && e.username){
+    label += ': ' + empName(e.username);
+    label += ' — выдал: ' + actorDisplayName(e.issuedBy);
+  }
   if(e.event==='confirmed_active' && e.username) label += ' (' + empName(e.username) + ')';
   if(e.event==='blocked' && e.username) label += ' — отметил(а) ' + empName(e.username);
   if(e.event==='temp_blocked'){
@@ -1650,7 +1662,13 @@ function describeLogEntry(e){
   if(e.event==='temp_block_expired'){
     label += e.kind==='whatsapp6h' ? ' (WhatsApp, вернулся к сотруднику)' : e.kind==='max10d' ? ' (MAX, вернулся в общий пул)' : '';
   }
-  if(e.event==='admin_reassigned' && e.to) label += ': ' + empName(e.to);
+  if(e.event==='admin_reassigned' && e.to){
+    label += ': ' + empName(e.to);
+    label += ' — выполнил(а): ' + actorDisplayName(e.username);
+  }
+  if(ADMIN_ACTOR_EVENTS.indexOf(e.event)>-1 && e.username){
+    label += ' — выполнил(а): ' + actorDisplayName(e.username);
+  }
   return label;
 }
 
@@ -2109,7 +2127,7 @@ async function approveExcessRequest(reqId, mode){
   m.assignedAt = now;
   m.lastCheck = now;
   m.blockedAt = null;
-  log('assigned', { username: r.username, messengerId: m.id, phone: m.phone, type: m.type, source:'excess' });
+  log('assigned', { username: r.username, messengerId: m.id, phone: m.phone, type: m.type, source:'excess', issuedBy: actingAdminUsername() });
   r.status = 'approved';
   r.resolvedBy = actingAdminUsername();
   r.resolvedAt = now;
