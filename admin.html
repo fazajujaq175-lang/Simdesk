@@ -325,6 +325,8 @@ let bulkDeleteSelected = new Set();
 let lastRenderedMsgIds = [];
 let popupOpen = false;
 let adminPollInterval = null;
+let presenceChannel = null;
+let onlineUsernames = new Set();
 
 function defaultDB(){
   return {
@@ -464,6 +466,39 @@ function setupRealtimeSync(){
       })
       .subscribe();
   }catch(e){ /* realtime is a nice-to-have, ignore failures */ }
+}
+
+async function joinPresenceChannel(){
+  if(!sb) return;
+  try{
+    const key = currentUser ? currentUser : ('superadmin_' + uid());
+    const displayName = currentUser ? (DB.employees[currentUser] ? DB.employees[currentUser].name : currentUser) : 'FarmerAdmin';
+    presenceChannel = sb.channel('online-operators', { config: { presence: { key } } });
+    presenceChannel.on('presence', { event: 'sync' }, ()=>{
+      const state = presenceChannel.presenceState();
+      const set = new Set();
+      Object.values(state).forEach(entries=>{ entries.forEach(p=>{ if(p.username) set.add(p.username); }); });
+      onlineUsernames = set;
+      if(currentRole==='admin' && !isAdminFormActive()){
+        renderAdminTabContent();
+      }
+    });
+    presenceChannel.subscribe(async (status)=>{
+      if(status === 'SUBSCRIBED'){
+        await presenceChannel.track({ username: currentUser || 'FarmerAdmin', name: displayName, role: currentRole, since: Date.now() });
+      }
+    });
+  }catch(e){ /* presence is a nice-to-have, ignore failures */ }
+}
+
+async function leavePresenceChannel(){
+  if(!presenceChannel) return;
+  try{
+    await presenceChannel.untrack();
+    sb.removeChannel(presenceChannel);
+  }catch(e){ /* ignore */ }
+  presenceChannel = null;
+  onlineUsernames = new Set();
 }
 
 function log(event, extra){
@@ -659,6 +694,7 @@ async function handleLogin(){
     if(portal!=='admin'){ renderLogin('Эта страница только для сотрудников. Обратитесь к администратору за отдельным адресом админки.'); return; }
     currentRole = 'admin'; currentUser = null;
     renderAdmin();
+    joinPresenceChannel();
     return;
   }
   const emp = DB.employees[u];
@@ -669,6 +705,7 @@ async function handleLogin(){
       await saveDB();
       currentRole = 'admin'; currentUser = u;
       renderAdmin();
+      joinPresenceChannel();
       return;
     }
     if(portal!=='operator'){ renderLogin('Эта страница только для администраторов.'); return; }
@@ -677,12 +714,14 @@ async function handleLogin(){
     currentRole = 'employee'; currentUser = u;
     renderEmployee();
     startEmployeeClock();
+    joinPresenceChannel();
     return;
   }
   renderLogin('Неверный логин или пароль.');
 }
 
 function logout(){
+  leavePresenceChannel();
   currentRole = null; currentUser = null; popupOpen = false;
   if(employeeClockInterval) clearInterval(employeeClockInterval);
   if(adminPollInterval) clearInterval(adminPollInterval);
@@ -1818,8 +1857,13 @@ function closeEmployeeDetail(){
 function adminAccessHtml(){
   const usernames = Object.keys(DB.employees);
   const depts = uniqueDepartments();
+  const onlineCount = usernames.filter(u=>onlineUsernames.has(u)).length;
   const rows = usernames.map(u=>{
     const emp = DB.employees[u];
+    const isOnline = onlineUsernames.has(u);
+    const statusCell = isOnline
+      ? `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--success);font-size:12px;font-weight:700;"><span style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;box-shadow:0 0 0 3px rgba(51,193,122,0.18);"></span>Онлайн сейчас</span>`
+      : `<span style="color:var(--text-faint);font-size:12px;">Не в сети</span>`;
     return `
       <tr>
         <td>${escapeHtml(emp.name)}</td>
@@ -1827,6 +1871,8 @@ function adminAccessHtml(){
         <td style="font-family:var(--mono);color:var(--text-dim);">${escapeHtml(emp.password)}</td>
         <td>${emp.department ? escapeHtml(emp.department) : '—'}</td>
         <td><span class="role-pill ${emp.role}">${emp.role==='admin'?'Админ':'Оператор'}</span></td>
+        <td style="font-size:12px;color:var(--text-dim);">${emp.lastLoginAt ? fmtDateTime(emp.lastLoginAt) : 'ни разу не заходил'}</td>
+        <td>${statusCell}</td>
         <td><button class="btn btn-ghost btn-sm" onclick="adminDeleteEmployee('${escapeHtml(u)}')">Удалить доступ</button></td>
       </tr>
     `;
@@ -1868,11 +1914,16 @@ function adminAccessHtml(){
       </div>
     </div>
 
-    <div class="section-title">Сотрудники с доступом</div>
+    <div class="section-title">Активность и доступ</div>
+    <p class="section-sub">«Онлайн сейчас» — открыта ли у сотрудника вкладка с системой прямо в эту секунду (обновляется живьём). «Последний вход» — момент, когда он в последний раз вводил логин и пароль.</p>
+    <div class="grid-3" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-num" style="color:var(--success)">${onlineCount}</div><div class="stat-label">Онлайн сейчас</div></div>
+      <div class="stat-card"><div class="stat-num">${usernames.length}</div><div class="stat-label">Всего с доступом</div></div>
+    </div>
     <div class="card" style="padding:8px 16px;">
       ${usernames.length ? `
       <table>
-        <thead><tr><th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th></th></tr></thead>
+        <thead><tr><th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th>Последний вход</th><th>Статус</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Пока никому не выдан доступ</div>'}
     </div>
