@@ -325,6 +325,12 @@ let msgFiltersPanelOpen = false;
 let bulkDeleteMode = false;
 let bulkDeleteSelected = new Set();
 let lastRenderedMsgIds = [];
+let historyFilterType = 'all';
+let historyFilterKind = 'all';
+let historyFilterEmployee = 'all';
+let historyFilterDateFrom = '';
+let historyFilterDateTo = '';
+let historyFilterPhone = '';
 let popupOpen = false;
 let adminPollInterval = null;
 let presenceChannel = null;
@@ -869,6 +875,7 @@ function requestCardHtml(type, count, quota){
 }
 
 async function requestMessenger(type){
+  await refreshFromStorage();
   const quota = getQuotaStatus(currentUser, type);
   if(!quota.hasQuota){
     return requestExcessMessenger(type);
@@ -895,6 +902,7 @@ async function requestMessenger(type){
 }
 
 async function requestExcessMessenger(type){
+  await refreshFromStorage();
   const existing = DB.excessRequests.find(r=>r.username===currentUser && r.type===type && r.status==='pending');
   if(existing){ showToast('Запрос уже отправлен и ожидает решения', 'danger'); return; }
   const emp = DB.employees[currentUser];
@@ -1057,6 +1065,7 @@ function closeCheckPopupIfOpen(){
 }
 
 async function markMessengerActive(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.lastCheck = Date.now();
@@ -1065,6 +1074,7 @@ async function markMessengerActive(id){
 }
 
 async function markMessengerBlocked(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.status = 'blocked';
@@ -1076,6 +1086,7 @@ async function markMessengerBlocked(id){
 }
 
 async function markMessengerTempBlocked(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m || (m.type!=='whatsapp' && m.type!=='max')) return;
   const now = Date.now();
@@ -1151,6 +1162,7 @@ function renderAdmin(){
     <div class="main">
       <div class="tabs">
         <div class="tab ${adminTab==='messengers'?'active':''}" onclick="switchAdminTab('messengers')">Мессенджеры</div>
+        <div class="tab ${adminTab==='history'?'active':''}" onclick="switchAdminTab('history')">История номеров</div>
         <div class="tab ${adminTab==='analytics'?'active':''}" onclick="switchAdminTab('analytics')">Аналитика</div>
         <div class="tab ${adminTab==='access'?'active':''}" onclick="switchAdminTab('access')">Доступы</div>
         <div class="tab ${adminTab==='quotas'?'active':''}" onclick="switchAdminTab('quotas')">Нормы</div>
@@ -1215,6 +1227,7 @@ function switchAdminTab(tab){
 function renderAdminTabContent(){
   const el = document.getElementById('admin-tab-content');
   if(adminTab==='messengers') el.innerHTML = adminMessengersHtml();
+  else if(adminTab==='history') el.innerHTML = adminIssuanceHistoryHtml();
   else if(adminTab==='analytics') el.innerHTML = adminAnalyticsHtml();
   else if(adminTab==='access') el.innerHTML = adminAccessHtml();
   else if(adminTab==='quotas') el.innerHTML = adminQuotasHtml();
@@ -1448,6 +1461,226 @@ function exportMessengersToExcel(){
   showToast('Экспортировано номеров: '+list.length, 'success');
 }
 
+/* ---- Issuance history tab ---- */
+function getIssuanceEntries(){
+  const empName = (u)=> DB.employees[u] ? DB.employees[u].name : (u || '—');
+  const entries = [];
+  DB.log.forEach(e=>{
+    if(e.event==='assigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: actorDisplayName(e.issuedBy) + (e.source==='excess' ? ' (сверх нормы)' : ''),
+        kind: 'Выдача'
+      });
+    } else if(e.event==='admin_reassigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.to,
+        recipientName: empName(e.to),
+        issuedByLabel: actorDisplayName(e.username),
+        kind: 'Переназначение'
+      });
+    } else if(e.event==='created_messenger'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: null,
+        recipientName: '—',
+        issuedByLabel: actorDisplayName(e.username) + (e.source==='bulk_import' ? ' (Excel)' : ''),
+        kind: 'Добавлен в пул'
+      });
+    } else if(e.event==='deleted_messenger'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: null,
+        recipientName: '—',
+        issuedByLabel: actorDisplayName(e.username) + (e.source==='bulk_delete' ? ' (массово)' : ''),
+        kind: 'Удалён из пула'
+      });
+    } else if(e.event==='admin_revoked'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.previousHolder || null,
+        recipientName: e.previousHolder ? empName(e.previousHolder) : (e.previousHolderName || '—'),
+        issuedByLabel: 'Забрал: ' + actorDisplayName(e.username),
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='admin_unassigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.previousHolder || null,
+        recipientName: e.previousHolder ? empName(e.previousHolder) : (e.previousHolderName || '—'),
+        issuedByLabel: 'Забрал: ' + actorDisplayName(e.username),
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='blocked'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: 'Заблокировал сам сотрудник',
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='temp_blocked' && e.kind==='max10d'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: 'Временный блок MAX — снят с сотрудника',
+        kind: 'Забран у сотрудника'
+      });
+    }
+  });
+  return entries.sort((a,b)=>b.ts-a.ts);
+}
+
+function adminIssuanceHistoryHtml(){
+  const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
+  let entries = getIssuanceEntries();
+  const allPhones = Array.from(new Set(entries.map(e=>e.phone).filter(Boolean))).sort();
+  if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
+  if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterPhone.trim()){
+    const needle = historyFilterPhone.replace(/\s+/g,'').toLowerCase();
+    entries = entries.filter(e=>e.phone && e.phone.replace(/\s+/g,'').toLowerCase().indexOf(needle)>-1);
+  }
+  if(historyFilterDateFrom){
+    const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
+    entries = entries.filter(e=>e.ts>=fromTs);
+  }
+  if(historyFilterDateTo){
+    const toTs = new Date(historyFilterDateTo+'T23:59:59').getTime();
+    entries = entries.filter(e=>e.ts<=toTs);
+  }
+
+  const rows = entries.map(e=>`
+    <tr>
+      <td style="white-space:nowrap;">${fmtDateTime(e.ts)}</td>
+      <td class="sim-phone" style="font-family:var(--mono);">${escapeHtml(e.phone||'—')}</td>
+      <td><span class="tbadge ${e.type}"><span class="dot"></span>${typeLabel(e.type)}</span></td>
+      <td style="font-size:11.5px;color:var(--text-dim);">${escapeHtml(e.kind)}</td>
+      <td>${escapeHtml(e.recipientName)}</td>
+      <td style="color:var(--text-dim);">${escapeHtml(e.issuedByLabel)}</td>
+    </tr>
+  `).join('');
+
+  const kinds = ['all','Выдача','Переназначение','Забран у сотрудника','Добавлен в пул','Удалён из пула'];
+  return `
+    <div class="section-title">История номеров</div>
+    <p class="section-sub">Всё, что происходило с номерами: добавление и удаление из пула, выдача и переназначение сотрудникам, а также отзыв или блокировка — видно, забрали ли номер у сотрудника и по какой причине (самостоятельный запрос сотрудника отмечается как «Автоматизация»).</p>
+    <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
+      <div class="field" style="max-width:260px;margin-bottom:0;">
+        <input type="text" list="history-phone-list" id="history-filter-phone" placeholder="🔍 Поиск по номеру телефона" value="${escapeHtml(historyFilterPhone)}" oninput="setHistoryPhoneFilter(this.value)" style="width:100%;padding:8px 12px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;font-family:var(--mono);">
+        <datalist id="history-phone-list">
+          ${allPhones.map(p=>`<option value="${escapeHtml(p)}">`).join('')}
+        </datalist>
+      </div>
+      ${historyFilterPhone.trim() ? `<button class="btn btn-ghost btn-sm" onclick="setHistoryPhoneFilter('')">✕ Очистить поиск</button>` : ''}
+    </div>
+    <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
+      ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${historyFilterType===t?'active':''}" onclick="setHistoryTypeFilter('${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
+    </div>
+    <div class="filter-row" style="margin-top:8px;align-items:flex-end;">
+      ${kinds.map(k=>`<div class="fbtn ${historyFilterKind===k?'active':''}" onclick="setHistoryKindFilter('${k}')">${k==='all'?'Все события':k}</div>`).join('')}
+      <span style="flex:1;"></span>
+      <div class="field" style="max-width:200px;margin-bottom:0;">
+        <select id="history-filter-employee" onchange="setHistoryEmployeeFilter(this.value)" style="width:100%;padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+          <option value="all" ${historyFilterEmployee==='all'?'selected':''}>Все сотрудники</option>
+          ${employeeOptions.map(u=>`<option value="${escapeHtml(u)}" ${historyFilterEmployee===u?'selected':''}>${escapeHtml(DB.employees[u].name)}</option>`).join('')}
+        </select>
+      </div>
+      <input type="date" id="history-filter-date-from" value="${historyFilterDateFrom}" onchange="setHistoryDateFilter('from', this.value)" style="padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+      <input type="date" id="history-filter-date-to" value="${historyFilterDateTo}" onchange="setHistoryDateFilter('to', this.value)" style="padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+      <button class="btn btn-ghost btn-sm" onclick="resetHistoryFilters()">Сбросить</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportIssuanceHistoryToExcel()">⬇ Экспорт в Excel</button>
+    </div>
+    <div class="card" style="padding:8px 16px;margin-top:16px;">
+      ${entries.length ? `
+      <table>
+        <thead><tr><th>Когда</th><th>Номер</th><th>Тип</th><th>Событие</th><th>Сотрудник</th><th>Детали</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
+    </div>
+  `;
+}
+
+function setHistoryTypeFilter(val){ historyFilterType = val; renderAdminTabContent(); }
+function setHistoryKindFilter(val){ historyFilterKind = val; renderAdminTabContent(); }
+function setHistoryEmployeeFilter(val){ historyFilterEmployee = val; renderAdminTabContent(); }
+function setHistoryPhoneFilter(val){
+  historyFilterPhone = val;
+  renderAdminTabContent();
+  const input = document.getElementById('history-filter-phone');
+  if(input){
+    input.focus();
+    const len = input.value.length;
+    input.setSelectionRange(len, len);
+  }
+}
+function setHistoryDateFilter(which, val){
+  if(which==='from') historyFilterDateFrom = val; else historyFilterDateTo = val;
+  renderAdminTabContent();
+}
+function resetHistoryFilters(){
+  historyFilterType = 'all'; historyFilterKind = 'all'; historyFilterEmployee = 'all';
+  historyFilterDateFrom = ''; historyFilterDateTo = ''; historyFilterPhone = '';
+  renderAdminTabContent();
+}
+
+function exportIssuanceHistoryToExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('Библиотека для Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
+  let entries = getIssuanceEntries();
+  if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
+  if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterPhone.trim()){
+    const needle = historyFilterPhone.replace(/\s+/g,'').toLowerCase();
+    entries = entries.filter(e=>e.phone && e.phone.replace(/\s+/g,'').toLowerCase().indexOf(needle)>-1);
+  }
+  if(historyFilterDateFrom){
+    const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
+    entries = entries.filter(e=>e.ts>=fromTs);
+  }
+  if(historyFilterDateTo){
+    const toTs = new Date(historyFilterDateTo+'T23:59:59').getTime();
+    entries = entries.filter(e=>e.ts<=toTs);
+  }
+  if(!entries.length){ showToast('Нет данных под текущий фильтр для экспорта', 'danger'); return; }
+  const rows = entries.map(e=>({
+    'Когда': fmtDateTime(e.ts),
+    'Номер': e.phone || '',
+    'Тип': typeLabel(e.type),
+    'Событие': e.kind,
+    'Сотрудник': e.recipientName,
+    'Кто выполнил': e.issuedByLabel
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:20},{wch:12},{wch:16},{wch:20},{wch:24}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'История номеров');
+  const dateStr = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, 'sim_desk_история_номеров_'+dateStr+'.xlsx');
+  showToast('Экспортировано записей: '+entries.length, 'success');
+}
+
 function normalizeMessengerType(raw){
   const s = String(raw||'').toLowerCase().trim();
   if(s.indexOf('telegram')>-1 || s.indexOf('телеграм')>-1 || s==='tg') return 'telegram';
@@ -1458,6 +1691,7 @@ function normalizeMessengerType(raw){
 
 async function handleExcelUpload(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const input = document.getElementById('excel-upload-input');
   const statusEl = document.getElementById('excel-upload-status');
   const file = input && input.files[0];
@@ -1477,15 +1711,16 @@ async function handleExcelUpload(){
       const phone = String(phoneRaw).trim();
       const type = normalizeMessengerType(typeRaw);
       if(!type){ skipped++; return; }
-      DB.messengers.push({
+      const m = {
         id: uid(), type, phone, status:'available',
         assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
         assignedAt:null, lastCheck:null, blockedAt:null,
         tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
-      });
+      };
+      DB.messengers.push(m);
+      log('created_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_import' });
       added++;
     });
-    log('bulk_import', { username: actingAdminUsername(), added, skipped });
     await saveDB();
     if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено (не распознан тип): '+skipped:'');
     showToast('Загрузка завершена: добавлено '+added+' номеров', 'success');
@@ -1498,6 +1733,7 @@ async function handleExcelUpload(){
 
 async function adminAddMessenger(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const type = document.getElementById('new-msg-type').value;
   const phone = document.getElementById('new-msg-phone').value.trim();
   if(!phone){ showToast('Укажите номер телефона', 'danger'); return; }
@@ -1516,10 +1752,12 @@ async function adminAddMessenger(){
 
 async function adminRevoke(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
+  const prevUser = m.assignedTo, prevName = m.assignedName;
   m.status='available'; m.assignedTo=null; m.assignedName=null; m.assignedAt=null; m.lastCheck=null;
-  log('admin_revoked', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  log('admin_revoked', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, previousHolder: prevUser, previousHolderName: prevName });
   await saveDB();
   showToast('Номер отозван и возвращён в пул', 'success');
   renderAdminTabContent();
@@ -1527,6 +1765,7 @@ async function adminRevoke(id){
 
 async function adminReturnToPool(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.status='available'; m.assignedTo=null; m.assignedName=null; m.lastHolder=null; m.lastHolderName=null;
@@ -1539,6 +1778,7 @@ async function adminReturnToPool(id){
 
 async function adminClearTempBlock(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m || m.status!=='temp_blocked') return;
   if(m.tempBlockKind==='whatsapp6h'){
@@ -1604,6 +1844,7 @@ function closeEditMessengerModal(){
 
 async function saveEditMessenger(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   const type = document.getElementById('edit-msg-type').value;
@@ -1630,7 +1871,7 @@ async function saveEditMessenger(id){
       m.assignedTo = null; m.assignedName = null;
       m.assignedAt = null; m.lastCheck = null;
       m.blockedAt = null; m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
-      log('admin_unassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+      log('admin_unassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, previousHolder: initialEmpUser, previousHolderName: DB.employees[initialEmpUser] ? DB.employees[initialEmpUser].name : initialEmpUser });
     }
   }
 
@@ -1642,6 +1883,7 @@ async function saveEditMessenger(id){
 
 async function deleteMessenger(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   const ok = window.confirm('Удалить номер '+m.phone+' из пула безвозвратно?');
@@ -1676,12 +1918,16 @@ function clearBulkSelection(){
 
 async function confirmBulkDelete(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!bulkDeleteSelected.size){ showToast('Ничего не выбрано', 'danger'); return; }
   const ok = window.confirm('Удалить выбранные номера ('+bulkDeleteSelected.size+' шт) безвозвратно? Это действие нельзя отменить.');
   if(!ok) return;
   const ids = Array.from(bulkDeleteSelected);
+  const toDelete = DB.messengers.filter(m=>bulkDeleteSelected.has(m.id));
+  toDelete.forEach(m=>{
+    log('deleted_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_delete' });
+  });
   DB.messengers = DB.messengers.filter(m=>!bulkDeleteSelected.has(m.id));
-  log('bulk_delete', { username: actingAdminUsername(), count: ids.length });
   await saveDB();
   bulkDeleteMode = false;
   bulkDeleteSelected = new Set();
@@ -1783,6 +2029,7 @@ function closeMessengerHistoryModal(){
 
 async function updateInterval(val){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const n = parseInt(val,10);
   if(!n || n<1) return;
   DB.settings.checkIntervalMinutes = n;
@@ -1969,6 +2216,7 @@ function adminAccessHtml(){
 
 async function adminCreateEmployee(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const name = document.getElementById('new-emp-name').value.trim();
   const dept = document.getElementById('new-emp-dept').value.trim();
   const loginVal = document.getElementById('new-emp-login').value.trim();
@@ -1986,6 +2234,7 @@ async function adminCreateEmployee(){
 
 async function adminDeleteEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   delete DB.employees[u];
   // free up any messengers assigned to this employee
@@ -2099,6 +2348,7 @@ function parseNormInput(val){
 
 async function setNormForEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   const tg = document.getElementById('norm-tg-'+u).value;
   const wa = document.getElementById('norm-wa-'+u).value;
@@ -2115,6 +2365,7 @@ async function setNormForEmployee(u){
 
 async function clearNormForEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   DB.employees[u].normByType = { telegram:null, whatsapp:null, max:null };
   await saveDB();
@@ -2124,6 +2375,7 @@ async function clearNormForEmployee(u){
 
 async function setNormForDepartment(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const dept = document.getElementById('dept-norm-select').value;
   if(!dept){ showToast('Выберите отдел', 'danger'); return; }
   const tgRaw = document.getElementById('dept-norm-tg').value.trim();
@@ -2211,6 +2463,7 @@ function adminExcessHtml(){
 
 async function approveExcessRequest(reqId, mode){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const r = DB.excessRequests.find(x=>x.id===reqId);
   if(!r || r.status!=='pending') return;
   let m = null;
@@ -2247,6 +2500,7 @@ async function approveExcessRequest(reqId, mode){
 
 async function rejectExcessRequest(reqId){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const r = DB.excessRequests.find(x=>x.id===reqId);
   if(!r || r.status!=='pending') return;
   r.status = 'rejected';
