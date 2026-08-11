@@ -325,6 +325,10 @@ let msgFiltersPanelOpen = false;
 let bulkDeleteMode = false;
 let bulkDeleteSelected = new Set();
 let lastRenderedMsgIds = [];
+let historyFilterType = 'all';
+let historyFilterEmployee = 'all';
+let historyFilterDateFrom = '';
+let historyFilterDateTo = '';
 let popupOpen = false;
 let adminPollInterval = null;
 let presenceChannel = null;
@@ -653,17 +657,13 @@ function escapeHtml(s){
 /* ================= LOGIN ================= */
 function renderLogin(errorMsg){
   const app = document.getElementById('app');
-  const portal = getPortalMode(); // 'admin' | 'operator' | 'viewer' — задаётся константой FIXED_PORTAL
-  const title = portal==='admin' ? 'SIM Desk — Админ' : portal==='viewer' ? 'SIM Desk — Наблюдатель' : 'SIM Desk — Кабинет сотрудника';
+  const portal = getPortalMode(); // 'admin' | 'operator' — задаётся константой FIXED_PORTAL
+  const title = portal==='admin' ? 'SIM Desk — Админ' : 'SIM Desk — Кабинет сотрудника';
   const sub = portal==='admin'
     ? 'Панель управления пулом номеров, доступами и нормами.'
-    : portal==='viewer'
-    ? 'Просмотр номеров, аналитики и сотрудников без прав изменения.'
     : 'Запрос мессенджеров и учёт активных номеров.';
   const hint = portal==='admin'
     ? 'Эта страница предназначена только для администраторов. Сотрудникам её адрес не передавайте.'
-    : portal==='viewer'
-    ? 'Доступ только для просмотра — добавление, изменение и удаление недоступны.'
     : 'Доступ сотруднику выдаёт администратор во вкладке «Доступы». Без учётной записи войти нельзя.';
   app.innerHTML = `
     <div class="login-wrap">
@@ -710,15 +710,6 @@ async function handleLogin(){
       emp.lastLoginAt = Date.now();
       await saveDB();
       currentRole = 'admin'; currentUser = u; isReadOnlyAdmin = false;
-      renderAdmin();
-      joinPresenceChannel();
-      return;
-    }
-    if(emp.role === 'viewer'){
-      if(portal!=='viewer'){ renderLogin('Неверный логин или пароль.'); return; }
-      emp.lastLoginAt = Date.now();
-      await saveDB();
-      currentRole = 'admin'; currentUser = u; isReadOnlyAdmin = true;
       renderAdmin();
       joinPresenceChannel();
       return;
@@ -1151,6 +1142,7 @@ function renderAdmin(){
     <div class="main">
       <div class="tabs">
         <div class="tab ${adminTab==='messengers'?'active':''}" onclick="switchAdminTab('messengers')">Мессенджеры</div>
+        <div class="tab ${adminTab==='history'?'active':''}" onclick="switchAdminTab('history')">История выдачи</div>
         <div class="tab ${adminTab==='analytics'?'active':''}" onclick="switchAdminTab('analytics')">Аналитика</div>
         <div class="tab ${adminTab==='access'?'active':''}" onclick="switchAdminTab('access')">Доступы</div>
         <div class="tab ${adminTab==='quotas'?'active':''}" onclick="switchAdminTab('quotas')">Нормы</div>
@@ -1215,6 +1207,7 @@ function switchAdminTab(tab){
 function renderAdminTabContent(){
   const el = document.getElementById('admin-tab-content');
   if(adminTab==='messengers') el.innerHTML = adminMessengersHtml();
+  else if(adminTab==='history') el.innerHTML = adminIssuanceHistoryHtml();
   else if(adminTab==='analytics') el.innerHTML = adminAnalyticsHtml();
   else if(adminTab==='access') el.innerHTML = adminAccessHtml();
   else if(adminTab==='quotas') el.innerHTML = adminQuotasHtml();
@@ -1446,6 +1439,131 @@ function exportMessengersToExcel(){
   const dateStr = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, 'sim_desk_номера_'+dateStr+'.xlsx');
   showToast('Экспортировано номеров: '+list.length, 'success');
+}
+
+/* ---- Issuance history tab ---- */
+function getIssuanceEntries(){
+  const empName = (u)=> DB.employees[u] ? DB.employees[u].name : (u || '—');
+  const entries = [];
+  DB.log.forEach(e=>{
+    if(e.event==='assigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: actorDisplayName(e.issuedBy) + (e.source==='excess' ? ' (сверх нормы)' : ''),
+        kind: 'Выдача'
+      });
+    } else if(e.event==='admin_reassigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.to,
+        recipientName: empName(e.to),
+        issuedByLabel: actorDisplayName(e.username),
+        kind: 'Переназначение'
+      });
+    }
+  });
+  return entries.sort((a,b)=>b.ts-a.ts);
+}
+
+function adminIssuanceHistoryHtml(){
+  const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
+  let entries = getIssuanceEntries();
+  if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterDateFrom){
+    const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
+    entries = entries.filter(e=>e.ts>=fromTs);
+  }
+  if(historyFilterDateTo){
+    const toTs = new Date(historyFilterDateTo+'T23:59:59').getTime();
+    entries = entries.filter(e=>e.ts<=toTs);
+  }
+
+  const rows = entries.map(e=>`
+    <tr>
+      <td style="white-space:nowrap;">${fmtDateTime(e.ts)}</td>
+      <td class="sim-phone" style="font-family:var(--mono);">${escapeHtml(e.phone||'—')}</td>
+      <td><span class="tbadge ${e.type}"><span class="dot"></span>${typeLabel(e.type)}</span></td>
+      <td style="font-size:11.5px;color:var(--text-dim);">${escapeHtml(e.kind)}</td>
+      <td>${escapeHtml(e.recipientName)}</td>
+      <td style="color:var(--text-dim);">${escapeHtml(e.issuedByLabel)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="section-title">История выдачи</div>
+    <p class="section-sub">Каждый факт распределения номера сотруднику: когда, кому и кем это было сделано (самостоятельный запрос сотрудника отмечается как «Автоматизация»).</p>
+    <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
+      ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${historyFilterType===t?'active':''}" onclick="setHistoryTypeFilter('${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
+      <span style="flex:1;"></span>
+      <div class="field" style="max-width:200px;margin-bottom:0;">
+        <select id="history-filter-employee" onchange="setHistoryEmployeeFilter(this.value)" style="width:100%;padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+          <option value="all" ${historyFilterEmployee==='all'?'selected':''}>Все сотрудники</option>
+          ${employeeOptions.map(u=>`<option value="${escapeHtml(u)}" ${historyFilterEmployee===u?'selected':''}>${escapeHtml(DB.employees[u].name)}</option>`).join('')}
+        </select>
+      </div>
+      <input type="date" id="history-filter-date-from" value="${historyFilterDateFrom}" onchange="setHistoryDateFilter('from', this.value)" style="padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+      <input type="date" id="history-filter-date-to" value="${historyFilterDateTo}" onchange="setHistoryDateFilter('to', this.value)" style="padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
+      <button class="btn btn-ghost btn-sm" onclick="resetHistoryFilters()">Сбросить</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportIssuanceHistoryToExcel()">⬇ Экспорт в Excel</button>
+    </div>
+    <div class="card" style="padding:8px 16px;margin-top:16px;">
+      ${entries.length ? `
+      <table>
+        <thead><tr><th>Когда</th><th>Номер</th><th>Тип</th><th>Событие</th><th>Кому</th><th>Кто выдал</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
+    </div>
+  `;
+}
+
+function setHistoryTypeFilter(val){ historyFilterType = val; renderAdminTabContent(); }
+function setHistoryEmployeeFilter(val){ historyFilterEmployee = val; renderAdminTabContent(); }
+function setHistoryDateFilter(which, val){
+  if(which==='from') historyFilterDateFrom = val; else historyFilterDateTo = val;
+  renderAdminTabContent();
+}
+function resetHistoryFilters(){
+  historyFilterType = 'all'; historyFilterEmployee = 'all';
+  historyFilterDateFrom = ''; historyFilterDateTo = '';
+  renderAdminTabContent();
+}
+
+function exportIssuanceHistoryToExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('Библиотека для Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
+  let entries = getIssuanceEntries();
+  if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterDateFrom){
+    const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
+    entries = entries.filter(e=>e.ts>=fromTs);
+  }
+  if(historyFilterDateTo){
+    const toTs = new Date(historyFilterDateTo+'T23:59:59').getTime();
+    entries = entries.filter(e=>e.ts<=toTs);
+  }
+  if(!entries.length){ showToast('Нет данных под текущий фильтр для экспорта', 'danger'); return; }
+  const rows = entries.map(e=>({
+    'Когда': fmtDateTime(e.ts),
+    'Номер': e.phone || '',
+    'Тип': typeLabel(e.type),
+    'Событие': e.kind,
+    'Кому': e.recipientName,
+    'Кто выдал': e.issuedByLabel
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:20},{wch:12},{wch:16},{wch:20},{wch:24}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'История выдачи');
+  const dateStr = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, 'sim_desk_история_выдачи_'+dateStr+'.xlsx');
+  showToast('Экспортировано записей: '+entries.length, 'success');
 }
 
 function normalizeMessengerType(raw){
@@ -1943,7 +2061,6 @@ function adminAccessHtml(){
           <select id="new-emp-role">
             <option value="operator">Оператор</option>
             <option value="admin">Админ</option>
-            <option value="viewer">Наблюдатель (только просмотр)</option>
           </select>
         </div>
         <button class="btn btn-primary" onclick="adminCreateEmployee()">Создать доступ</button>
