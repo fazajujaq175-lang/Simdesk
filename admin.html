@@ -323,6 +323,8 @@ let msgFilterDateFrom = '';
 let msgFilterDateTo = '';
 let msgFiltersPanelOpen = false;
 let bulkDeleteMode = false;
+let bulkDeleteEmpMode = false;
+let bulkDeleteEmpSelected = new Set();
 let bulkDeleteSelected = new Set();
 let lastRenderedMsgIds = [];
 let historyFilterType = 'all';
@@ -2147,6 +2149,7 @@ function adminAccessHtml(){
       : `<span style="color:var(--text-faint);font-size:12px;">Не в сети</span>`;
     return `
       <tr>
+        ${(bulkDeleteEmpMode && !isReadOnlyAdmin) ? `<td><input type="checkbox" ${bulkDeleteEmpSelected.has(u)?'checked':''} onclick="toggleBulkEmpSelect('${escapeHtml(u)}')"></td>` : ''}
         <td>${escapeHtml(emp.name)}</td>
         <td style="font-family:var(--mono);color:var(--text-dim);">${escapeHtml(u)}</td>
         <td style="font-family:var(--mono);color:var(--text-dim);">${isReadOnlyAdmin ? '••••••' : escapeHtml(emp.password)}</td>
@@ -2161,31 +2164,29 @@ function adminAccessHtml(){
 
   return `
     ${isReadOnlyAdmin ? '' : `
-    <div class="card" style="margin-bottom:24px;max-width:680px;">
-      <div class="section-title" style="margin-bottom:2px;">Создать доступ сотруднику</div>
-      <p class="section-sub">Оператор входит в личный кабинет и запрашивает номера. Админ получает доступ к этой панели.</p>
-      <div class="form-row">
-        <div class="field">
+    <div class="grid-3" style="margin-bottom:24px;align-items:stretch;">
+      <div class="card" style="grid-column:span 1;">
+        <div class="section-title" style="margin-bottom:2px;">Создать доступ сотруднику</div>
+        <p class="section-sub">Оператор входит в личный кабинет и запрашивает номера. Админ получает доступ к этой панели.</p>
+        <div class="field" style="margin-bottom:10px;">
           <label>ФИО сотрудника</label>
           <input id="new-emp-name" type="text" placeholder="Иванов И.И.">
         </div>
-        <div class="field">
+        <div class="field" style="margin-bottom:10px;">
           <label>Отдел</label>
           <select id="new-emp-dept">
             ${depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
           </select>
         </div>
-      </div>
-      <div class="form-row">
-        <div class="field">
+        <div class="field" style="margin-bottom:10px;">
           <label>Логин</label>
           <input id="new-emp-login" type="text" placeholder="ivanov">
         </div>
-        <div class="field">
+        <div class="field" style="margin-bottom:10px;">
           <label>Пароль</label>
           <input id="new-emp-password" type="text" placeholder="Пароль">
         </div>
-        <div class="field">
+        <div class="field" style="margin-bottom:12px;">
           <label>Доступ</label>
           <select id="new-emp-role">
             <option value="operator">Оператор</option>
@@ -2193,7 +2194,20 @@ function adminAccessHtml(){
             <option value="viewer">Наблюдатель (только просмотр)</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="adminCreateEmployee()">Создать доступ</button>
+        <button class="btn btn-primary" style="width:100%;" onclick="adminCreateEmployee()">Создать доступ</button>
+      </div>
+
+      <div class="card" style="grid-column:span 2;">
+        <div class="section-title" style="margin-bottom:2px;">Массовая загрузка доступов из Excel / Google Таблиц</div>
+        <p class="section-sub">Столбец A — ФИО, столбец B — отдел (должен совпадать с одним из: ${DEPARTMENTS.join(', ')}), столбец C — логин, столбец D — пароль. Роль для всех загруженных — «Оператор» (при необходимости смените роль вручную после загрузки). Первая строка может быть заголовком — она будет пропущена. Из Google Таблиц: Файл → Скачать → Microsoft Excel (.xlsx).</p>
+        <div class="form-row">
+          <div class="field">
+            <label>Файл .xlsx / .xls</label>
+            <input id="emp-excel-upload-input" type="file" accept=".xlsx,.xls" style="padding:8px;background:var(--panel-3);border:1px solid var(--border);border-radius:9px;color:var(--text);width:100%;">
+          </div>
+          <button class="btn btn-primary" onclick="handleEmployeeExcelUpload()">Загрузить</button>
+        </div>
+        <div id="emp-excel-upload-status" style="font-size:12px;color:var(--text-dim);"></div>
       </div>
     </div>
     `}
@@ -2204,14 +2218,118 @@ function adminAccessHtml(){
       <div class="stat-card"><div class="stat-num" style="color:var(--success)">${onlineCount}</div><div class="stat-label">Онлайн сейчас</div></div>
       <div class="stat-card"><div class="stat-num">${usernames.length}</div><div class="stat-label">Всего с доступом</div></div>
     </div>
+
+    ${isReadOnlyAdmin ? '' : `
+    <div class="filter-row" style="margin-bottom:12px;">
+      <span style="flex:1;"></span>
+      <button class="btn ${bulkDeleteEmpMode?'btn-danger':'btn-ghost'} btn-sm" onclick="toggleBulkEmpMode()">${bulkDeleteEmpMode?'Отменить выбор':'Массовое удаление доступов'}</button>
+    </div>
+    ${bulkDeleteEmpMode ? `
+    <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--text-dim);">Выбрано: <b style="color:var(--text)">${bulkDeleteEmpSelected.size}</b></span>
+      <button class="btn btn-ghost btn-sm" onclick="selectAllEmployees()">Выбрать всех (${usernames.length})</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearBulkEmpSelection()">Снять выбор</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-danger btn-sm" onclick="confirmBulkDeleteEmployees()">Удалить выбранные доступы</button>
+    </div>
+    ` : ''}
+    `}
+
     <div class="card" style="padding:8px 16px;">
       ${usernames.length ? `
       <table>
-        <thead><tr><th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th>Последний вход</th><th>Статус</th><th></th></tr></thead>
+        <thead><tr>${(bulkDeleteEmpMode && !isReadOnlyAdmin)?'<th></th>':''}<th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th>Последний вход</th><th>Статус</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Пока никому не выдан доступ</div>'}
     </div>
   `;
+}
+
+function toggleBulkEmpMode(){
+  bulkDeleteEmpMode = !bulkDeleteEmpMode;
+  bulkDeleteEmpSelected = new Set();
+  renderAdminTabContent();
+}
+function toggleBulkEmpSelect(u){
+  if(bulkDeleteEmpSelected.has(u)) bulkDeleteEmpSelected.delete(u); else bulkDeleteEmpSelected.add(u);
+  renderAdminTabContent();
+}
+function selectAllEmployees(){
+  Object.keys(DB.employees).forEach(u=>bulkDeleteEmpSelected.add(u));
+  renderAdminTabContent();
+}
+function clearBulkEmpSelection(){
+  bulkDeleteEmpSelected = new Set();
+  renderAdminTabContent();
+}
+
+async function confirmBulkDeleteEmployees(){
+  if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  if(!bulkDeleteEmpSelected.size){ showToast('Ничего не выбрано', 'danger'); return; }
+  const ok = window.confirm('Удалить доступ у выбранных сотрудников ('+bulkDeleteEmpSelected.size+' шт)? Их номера вернутся в общий пул. Это действие нельзя отменить.');
+  if(!ok) return;
+  await refreshFromStorage();
+  const usernames = Array.from(bulkDeleteEmpSelected);
+  usernames.forEach(u=>{
+    if(!DB.employees[u]) return;
+    delete DB.employees[u];
+    DB.messengers.forEach(m=>{
+      if(m.assignedTo===u){ m.status='available'; m.assignedTo=null; m.assignedName=null; m.assignedAt=null; m.lastCheck=null; }
+    });
+    log('deleted_employee', { username: u, source:'bulk_delete' });
+  });
+  await saveDB();
+  bulkDeleteEmpMode = false;
+  bulkDeleteEmpSelected = new Set();
+  showToast('Удалено доступов: '+usernames.length, 'success');
+  renderAdminTabContent();
+}
+
+function normalizeDepartmentInput(raw){
+  const s = String(raw||'').trim();
+  const found = DEPARTMENTS.find(d=>d.toLowerCase()===s.toLowerCase());
+  return found || null;
+}
+
+async function handleEmployeeExcelUpload(){
+  if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  const input = document.getElementById('emp-excel-upload-input');
+  const statusEl = document.getElementById('emp-excel-upload-status');
+  const file = input && input.files[0];
+  if(!file){ showToast('Выберите файл', 'danger'); return; }
+  if(typeof XLSX === 'undefined'){ showToast('Библиотека для чтения Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
+  await refreshFromStorage();
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header:1 });
+    let added = 0, skipped = 0;
+    const skipReasons = [];
+    rows.forEach((row, idx)=>{
+      if(!row || !row.length) return;
+      const nameRaw = row[0], deptRaw = row[1], loginRaw = row[2], passRaw = row[3];
+      if(nameRaw===undefined && deptRaw===undefined && loginRaw===undefined && passRaw===undefined) return;
+      const name = String(nameRaw||'').trim();
+      const loginVal = String(loginRaw||'').trim();
+      const pass = String(passRaw||'').trim();
+      const dept = normalizeDepartmentInput(deptRaw);
+      if(!name || !loginVal || !pass){ skipped++; skipReasons.push('строка '+(idx+1)+': не заполнены обязательные поля'); return; }
+      if(!dept){ skipped++; skipReasons.push('строка '+(idx+1)+': отдел «'+String(deptRaw||'').trim()+'» не распознан'); return; }
+      if(loginVal === ADMIN_LOGIN){ skipped++; skipReasons.push('строка '+(idx+1)+': логин зарезервирован'); return; }
+      if(DB.employees[loginVal]){ skipped++; skipReasons.push('строка '+(idx+1)+': логин «'+loginVal+'» уже существует'); return; }
+      DB.employees[loginVal] = { password: pass, name, department: dept, role:'operator', normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null };
+      log('created_employee', { username: loginVal, source:'bulk_import' });
+      added++;
+    });
+    await saveDB();
+    if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено: '+skipped+' ('+skipReasons.slice(0,5).join('; ')+(skipReasons.length>5?'…':'')+')':'');
+    showToast('Загрузка завершена: добавлено '+added+' доступов'+(skipped?', пропущено '+skipped:''), 'success');
+    if(input) input.value = '';
+    renderAdminTabContent();
+  }catch(e){
+    showToast('Не удалось прочитать файл. Проверьте формат .xlsx', 'danger');
+  }
 }
 
 async function adminCreateEmployee(){
