@@ -330,6 +330,7 @@ let historyFilterKind = 'all';
 let historyFilterEmployee = 'all';
 let historyFilterDateFrom = '';
 let historyFilterDateTo = '';
+let historyFilterPhone = '';
 let popupOpen = false;
 let adminPollInterval = null;
 let presenceChannel = null;
@@ -1535,9 +1536,14 @@ function getIssuanceEntries(){
 function adminIssuanceHistoryHtml(){
   const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
   let entries = getIssuanceEntries();
+  const allPhones = Array.from(new Set(entries.map(e=>e.phone).filter(Boolean))).sort();
   if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
   if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
   if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterPhone.trim()){
+    const needle = historyFilterPhone.replace(/\s+/g,'').toLowerCase();
+    entries = entries.filter(e=>e.phone && e.phone.replace(/\s+/g,'').toLowerCase().indexOf(needle)>-1);
+  }
   if(historyFilterDateFrom){
     const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
     entries = entries.filter(e=>e.ts>=fromTs);
@@ -1562,6 +1568,15 @@ function adminIssuanceHistoryHtml(){
   return `
     <div class="section-title">История номеров</div>
     <p class="section-sub">Всё, что происходило с номерами: добавление и удаление из пула, выдача и переназначение сотрудникам, а также отзыв или блокировка — видно, забрали ли номер у сотрудника и по какой причине (самостоятельный запрос сотрудника отмечается как «Автоматизация»).</p>
+    <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
+      <div class="field" style="max-width:260px;margin-bottom:0;">
+        <input type="text" list="history-phone-list" id="history-filter-phone" placeholder="🔍 Поиск по номеру телефона" value="${escapeHtml(historyFilterPhone)}" oninput="setHistoryPhoneFilter(this.value)" style="width:100%;padding:8px 12px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;font-family:var(--mono);">
+        <datalist id="history-phone-list">
+          ${allPhones.map(p=>`<option value="${escapeHtml(p)}">`).join('')}
+        </datalist>
+      </div>
+      ${historyFilterPhone.trim() ? `<button class="btn btn-ghost btn-sm" onclick="setHistoryPhoneFilter('')">✕ Очистить поиск</button>` : ''}
+    </div>
     <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
       ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${historyFilterType===t?'active':''}" onclick="setHistoryTypeFilter('${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
     </div>
@@ -1592,13 +1607,23 @@ function adminIssuanceHistoryHtml(){
 function setHistoryTypeFilter(val){ historyFilterType = val; renderAdminTabContent(); }
 function setHistoryKindFilter(val){ historyFilterKind = val; renderAdminTabContent(); }
 function setHistoryEmployeeFilter(val){ historyFilterEmployee = val; renderAdminTabContent(); }
+function setHistoryPhoneFilter(val){
+  historyFilterPhone = val;
+  renderAdminTabContent();
+  const input = document.getElementById('history-filter-phone');
+  if(input){
+    input.focus();
+    const len = input.value.length;
+    input.setSelectionRange(len, len);
+  }
+}
 function setHistoryDateFilter(which, val){
   if(which==='from') historyFilterDateFrom = val; else historyFilterDateTo = val;
   renderAdminTabContent();
 }
 function resetHistoryFilters(){
   historyFilterType = 'all'; historyFilterKind = 'all'; historyFilterEmployee = 'all';
-  historyFilterDateFrom = ''; historyFilterDateTo = '';
+  historyFilterDateFrom = ''; historyFilterDateTo = ''; historyFilterPhone = '';
   renderAdminTabContent();
 }
 
@@ -1608,6 +1633,10 @@ function exportIssuanceHistoryToExcel(){
   if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
   if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
   if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
+  if(historyFilterPhone.trim()){
+    const needle = historyFilterPhone.replace(/\s+/g,'').toLowerCase();
+    entries = entries.filter(e=>e.phone && e.phone.replace(/\s+/g,'').toLowerCase().indexOf(needle)>-1);
+  }
   if(historyFilterDateFrom){
     const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
     entries = entries.filter(e=>e.ts>=fromTs);
