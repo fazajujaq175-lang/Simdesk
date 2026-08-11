@@ -659,13 +659,17 @@ function escapeHtml(s){
 /* ================= LOGIN ================= */
 function renderLogin(errorMsg){
   const app = document.getElementById('app');
-  const portal = getPortalMode(); // 'admin' | 'operator' — задаётся константой FIXED_PORTAL
-  const title = portal==='admin' ? 'SIM Desk — Админ' : 'SIM Desk — Кабинет сотрудника';
+  const portal = getPortalMode(); // 'admin' | 'operator' | 'viewer' — задаётся константой FIXED_PORTAL
+  const title = portal==='admin' ? 'SIM Desk — Админ' : portal==='viewer' ? 'SIM Desk — Наблюдатель' : 'SIM Desk — Кабинет сотрудника';
   const sub = portal==='admin'
     ? 'Панель управления пулом номеров, доступами и нормами.'
+    : portal==='viewer'
+    ? 'Просмотр номеров, аналитики и сотрудников без прав изменения.'
     : 'Запрос мессенджеров и учёт активных номеров.';
   const hint = portal==='admin'
     ? 'Эта страница предназначена только для администраторов. Сотрудникам её адрес не передавайте.'
+    : portal==='viewer'
+    ? 'Доступ только для просмотра — добавление, изменение и удаление недоступны.'
     : 'Доступ сотруднику выдаёт администратор во вкладке «Доступы». Без учётной записи войти нельзя.';
   app.innerHTML = `
     <div class="login-wrap">
@@ -712,6 +716,15 @@ async function handleLogin(){
       emp.lastLoginAt = Date.now();
       await saveDB();
       currentRole = 'admin'; currentUser = u; isReadOnlyAdmin = false;
+      renderAdmin();
+      joinPresenceChannel();
+      return;
+    }
+    if(emp.role === 'viewer'){
+      if(portal!=='viewer'){ renderLogin('Неверный логин или пароль.'); return; }
+      emp.lastLoginAt = Date.now();
+      await saveDB();
+      currentRole = 'admin'; currentUser = u; isReadOnlyAdmin = true;
       renderAdmin();
       joinPresenceChannel();
       return;
@@ -862,6 +875,7 @@ function requestCardHtml(type, count, quota){
 }
 
 async function requestMessenger(type){
+  await refreshFromStorage();
   const quota = getQuotaStatus(currentUser, type);
   if(!quota.hasQuota){
     return requestExcessMessenger(type);
@@ -888,6 +902,7 @@ async function requestMessenger(type){
 }
 
 async function requestExcessMessenger(type){
+  await refreshFromStorage();
   const existing = DB.excessRequests.find(r=>r.username===currentUser && r.type===type && r.status==='pending');
   if(existing){ showToast('Запрос уже отправлен и ожидает решения', 'danger'); return; }
   const emp = DB.employees[currentUser];
@@ -1050,6 +1065,7 @@ function closeCheckPopupIfOpen(){
 }
 
 async function markMessengerActive(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.lastCheck = Date.now();
@@ -1058,6 +1074,7 @@ async function markMessengerActive(id){
 }
 
 async function markMessengerBlocked(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.status = 'blocked';
@@ -1069,6 +1086,7 @@ async function markMessengerBlocked(id){
 }
 
 async function markMessengerTempBlocked(id){
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m || (m.type!=='whatsapp' && m.type!=='max')) return;
   const now = Date.now();
@@ -1673,6 +1691,7 @@ function normalizeMessengerType(raw){
 
 async function handleExcelUpload(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const input = document.getElementById('excel-upload-input');
   const statusEl = document.getElementById('excel-upload-status');
   const file = input && input.files[0];
@@ -1714,6 +1733,7 @@ async function handleExcelUpload(){
 
 async function adminAddMessenger(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const type = document.getElementById('new-msg-type').value;
   const phone = document.getElementById('new-msg-phone').value.trim();
   if(!phone){ showToast('Укажите номер телефона', 'danger'); return; }
@@ -1732,6 +1752,7 @@ async function adminAddMessenger(){
 
 async function adminRevoke(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   const prevUser = m.assignedTo, prevName = m.assignedName;
@@ -1744,6 +1765,7 @@ async function adminRevoke(id){
 
 async function adminReturnToPool(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   m.status='available'; m.assignedTo=null; m.assignedName=null; m.lastHolder=null; m.lastHolderName=null;
@@ -1756,6 +1778,7 @@ async function adminReturnToPool(id){
 
 async function adminClearTempBlock(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m || m.status!=='temp_blocked') return;
   if(m.tempBlockKind==='whatsapp6h'){
@@ -1821,6 +1844,7 @@ function closeEditMessengerModal(){
 
 async function saveEditMessenger(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   const type = document.getElementById('edit-msg-type').value;
@@ -1859,6 +1883,7 @@ async function saveEditMessenger(id){
 
 async function deleteMessenger(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
   const ok = window.confirm('Удалить номер '+m.phone+' из пула безвозвратно?');
@@ -1893,6 +1918,7 @@ function clearBulkSelection(){
 
 async function confirmBulkDelete(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!bulkDeleteSelected.size){ showToast('Ничего не выбрано', 'danger'); return; }
   const ok = window.confirm('Удалить выбранные номера ('+bulkDeleteSelected.size+' шт) безвозвратно? Это действие нельзя отменить.');
   if(!ok) return;
@@ -2003,6 +2029,7 @@ function closeMessengerHistoryModal(){
 
 async function updateInterval(val){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const n = parseInt(val,10);
   if(!n || n<1) return;
   DB.settings.checkIntervalMinutes = n;
@@ -2163,6 +2190,7 @@ function adminAccessHtml(){
           <select id="new-emp-role">
             <option value="operator">Оператор</option>
             <option value="admin">Админ</option>
+            <option value="viewer">Наблюдатель (только просмотр)</option>
           </select>
         </div>
         <button class="btn btn-primary" onclick="adminCreateEmployee()">Создать доступ</button>
@@ -2188,6 +2216,7 @@ function adminAccessHtml(){
 
 async function adminCreateEmployee(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const name = document.getElementById('new-emp-name').value.trim();
   const dept = document.getElementById('new-emp-dept').value.trim();
   const loginVal = document.getElementById('new-emp-login').value.trim();
@@ -2205,6 +2234,7 @@ async function adminCreateEmployee(){
 
 async function adminDeleteEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   delete DB.employees[u];
   // free up any messengers assigned to this employee
@@ -2318,6 +2348,7 @@ function parseNormInput(val){
 
 async function setNormForEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   const tg = document.getElementById('norm-tg-'+u).value;
   const wa = document.getElementById('norm-wa-'+u).value;
@@ -2334,6 +2365,7 @@ async function setNormForEmployee(u){
 
 async function clearNormForEmployee(u){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   if(!DB.employees[u]) return;
   DB.employees[u].normByType = { telegram:null, whatsapp:null, max:null };
   await saveDB();
@@ -2343,6 +2375,7 @@ async function clearNormForEmployee(u){
 
 async function setNormForDepartment(){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const dept = document.getElementById('dept-norm-select').value;
   if(!dept){ showToast('Выберите отдел', 'danger'); return; }
   const tgRaw = document.getElementById('dept-norm-tg').value.trim();
@@ -2430,6 +2463,7 @@ function adminExcessHtml(){
 
 async function approveExcessRequest(reqId, mode){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const r = DB.excessRequests.find(x=>x.id===reqId);
   if(!r || r.status!=='pending') return;
   let m = null;
@@ -2466,6 +2500,7 @@ async function approveExcessRequest(reqId, mode){
 
 async function rejectExcessRequest(reqId){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
+  await refreshFromStorage();
   const r = DB.excessRequests.find(x=>x.id===reqId);
   if(!r || r.status!=='pending') return;
   r.status = 'rejected';
