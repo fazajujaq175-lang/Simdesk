@@ -326,6 +326,7 @@ let bulkDeleteMode = false;
 let bulkDeleteSelected = new Set();
 let lastRenderedMsgIds = [];
 let historyFilterType = 'all';
+let historyFilterKind = 'all';
 let historyFilterEmployee = 'all';
 let historyFilterDateFrom = '';
 let historyFilterDateTo = '';
@@ -1142,7 +1143,7 @@ function renderAdmin(){
     <div class="main">
       <div class="tabs">
         <div class="tab ${adminTab==='messengers'?'active':''}" onclick="switchAdminTab('messengers')">Мессенджеры</div>
-        <div class="tab ${adminTab==='history'?'active':''}" onclick="switchAdminTab('history')">История выдачи</div>
+        <div class="tab ${adminTab==='history'?'active':''}" onclick="switchAdminTab('history')">История номеров</div>
         <div class="tab ${adminTab==='analytics'?'active':''}" onclick="switchAdminTab('analytics')">Аналитика</div>
         <div class="tab ${adminTab==='access'?'active':''}" onclick="switchAdminTab('access')">Доступы</div>
         <div class="tab ${adminTab==='quotas'?'active':''}" onclick="switchAdminTab('quotas')">Нормы</div>
@@ -1466,6 +1467,66 @@ function getIssuanceEntries(){
         issuedByLabel: actorDisplayName(e.username),
         kind: 'Переназначение'
       });
+    } else if(e.event==='created_messenger'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: null,
+        recipientName: '—',
+        issuedByLabel: actorDisplayName(e.username) + (e.source==='bulk_import' ? ' (Excel)' : ''),
+        kind: 'Добавлен в пул'
+      });
+    } else if(e.event==='deleted_messenger'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: null,
+        recipientName: '—',
+        issuedByLabel: actorDisplayName(e.username) + (e.source==='bulk_delete' ? ' (массово)' : ''),
+        kind: 'Удалён из пула'
+      });
+    } else if(e.event==='admin_revoked'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.previousHolder || null,
+        recipientName: e.previousHolder ? empName(e.previousHolder) : (e.previousHolderName || '—'),
+        issuedByLabel: 'Забрал: ' + actorDisplayName(e.username),
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='admin_unassigned'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.previousHolder || null,
+        recipientName: e.previousHolder ? empName(e.previousHolder) : (e.previousHolderName || '—'),
+        issuedByLabel: 'Забрал: ' + actorDisplayName(e.username),
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='blocked'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: 'Заблокировал сам сотрудник',
+        kind: 'Забран у сотрудника'
+      });
+    } else if(e.event==='temp_blocked' && e.kind==='max10d'){
+      entries.push({
+        ts: e.ts,
+        phone: e.phone,
+        type: e.type,
+        recipientUsername: e.username,
+        recipientName: empName(e.username),
+        issuedByLabel: 'Временный блок MAX — снят с сотрудника',
+        kind: 'Забран у сотрудника'
+      });
     }
   });
   return entries.sort((a,b)=>b.ts-a.ts);
@@ -1475,6 +1536,7 @@ function adminIssuanceHistoryHtml(){
   const employeeOptions = Object.keys(DB.employees).sort((a,b)=>DB.employees[a].name.localeCompare(DB.employees[b].name));
   let entries = getIssuanceEntries();
   if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
   if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
   if(historyFilterDateFrom){
     const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
@@ -1496,11 +1558,15 @@ function adminIssuanceHistoryHtml(){
     </tr>
   `).join('');
 
+  const kinds = ['all','Выдача','Переназначение','Забран у сотрудника','Добавлен в пул','Удалён из пула'];
   return `
-    <div class="section-title">История выдачи</div>
-    <p class="section-sub">Каждый факт распределения номера сотруднику: когда, кому и кем это было сделано (самостоятельный запрос сотрудника отмечается как «Автоматизация»).</p>
+    <div class="section-title">История номеров</div>
+    <p class="section-sub">Всё, что происходило с номерами: добавление и удаление из пула, выдача и переназначение сотрудникам, а также отзыв или блокировка — видно, забрали ли номер у сотрудника и по какой причине (самостоятельный запрос сотрудника отмечается как «Автоматизация»).</p>
     <div class="filter-row" style="margin-top:10px;align-items:flex-end;">
       ${['all','telegram','whatsapp','max'].map(t=>`<div class="fbtn ${historyFilterType===t?'active':''}" onclick="setHistoryTypeFilter('${t}')">${t==='all'?'Все типы':typeLabel(t)}</div>`).join('')}
+    </div>
+    <div class="filter-row" style="margin-top:8px;align-items:flex-end;">
+      ${kinds.map(k=>`<div class="fbtn ${historyFilterKind===k?'active':''}" onclick="setHistoryKindFilter('${k}')">${k==='all'?'Все события':k}</div>`).join('')}
       <span style="flex:1;"></span>
       <div class="field" style="max-width:200px;margin-bottom:0;">
         <select id="history-filter-employee" onchange="setHistoryEmployeeFilter(this.value)" style="width:100%;padding:8px 10px;background:var(--panel-3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;">
@@ -1516,7 +1582,7 @@ function adminIssuanceHistoryHtml(){
     <div class="card" style="padding:8px 16px;margin-top:16px;">
       ${entries.length ? `
       <table>
-        <thead><tr><th>Когда</th><th>Номер</th><th>Тип</th><th>Событие</th><th>Кому</th><th>Кто выдал</th></tr></thead>
+        <thead><tr><th>Когда</th><th>Номер</th><th>Тип</th><th>Событие</th><th>Сотрудник</th><th>Детали</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Ничего не найдено под текущий фильтр</div>'}
     </div>
@@ -1524,13 +1590,14 @@ function adminIssuanceHistoryHtml(){
 }
 
 function setHistoryTypeFilter(val){ historyFilterType = val; renderAdminTabContent(); }
+function setHistoryKindFilter(val){ historyFilterKind = val; renderAdminTabContent(); }
 function setHistoryEmployeeFilter(val){ historyFilterEmployee = val; renderAdminTabContent(); }
 function setHistoryDateFilter(which, val){
   if(which==='from') historyFilterDateFrom = val; else historyFilterDateTo = val;
   renderAdminTabContent();
 }
 function resetHistoryFilters(){
-  historyFilterType = 'all'; historyFilterEmployee = 'all';
+  historyFilterType = 'all'; historyFilterKind = 'all'; historyFilterEmployee = 'all';
   historyFilterDateFrom = ''; historyFilterDateTo = '';
   renderAdminTabContent();
 }
@@ -1539,6 +1606,7 @@ function exportIssuanceHistoryToExcel(){
   if(typeof XLSX === 'undefined'){ showToast('Библиотека для Excel не загрузилась. Проверьте интернет-соединение.', 'danger'); return; }
   let entries = getIssuanceEntries();
   if(historyFilterType!=='all') entries = entries.filter(e=>e.type===historyFilterType);
+  if(historyFilterKind!=='all') entries = entries.filter(e=>e.kind===historyFilterKind);
   if(historyFilterEmployee!=='all') entries = entries.filter(e=>e.recipientUsername===historyFilterEmployee);
   if(historyFilterDateFrom){
     const fromTs = new Date(historyFilterDateFrom+'T00:00:00').getTime();
@@ -1554,15 +1622,15 @@ function exportIssuanceHistoryToExcel(){
     'Номер': e.phone || '',
     'Тип': typeLabel(e.type),
     'Событие': e.kind,
-    'Кому': e.recipientName,
-    'Кто выдал': e.issuedByLabel
+    'Сотрудник': e.recipientName,
+    'Кто выполнил': e.issuedByLabel
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [{wch:18},{wch:20},{wch:12},{wch:16},{wch:20},{wch:24}];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'История выдачи');
+  XLSX.utils.book_append_sheet(wb, ws, 'История номеров');
   const dateStr = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, 'sim_desk_история_выдачи_'+dateStr+'.xlsx');
+  XLSX.writeFile(wb, 'sim_desk_история_номеров_'+dateStr+'.xlsx');
   showToast('Экспортировано записей: '+entries.length, 'success');
 }
 
@@ -1595,15 +1663,16 @@ async function handleExcelUpload(){
       const phone = String(phoneRaw).trim();
       const type = normalizeMessengerType(typeRaw);
       if(!type){ skipped++; return; }
-      DB.messengers.push({
+      const m = {
         id: uid(), type, phone, status:'available',
         assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
         assignedAt:null, lastCheck:null, blockedAt:null,
         tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
-      });
+      };
+      DB.messengers.push(m);
+      log('created_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_import' });
       added++;
     });
-    log('bulk_import', { username: actingAdminUsername(), added, skipped });
     await saveDB();
     if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено (не распознан тип): '+skipped:'');
     showToast('Загрузка завершена: добавлено '+added+' номеров', 'success');
@@ -1636,8 +1705,9 @@ async function adminRevoke(id){
   if(isReadOnlyAdmin){ showToast('Режим только просмотра — изменения недоступны', 'danger'); return; }
   const m = DB.messengers.find(x=>x.id===id);
   if(!m) return;
+  const prevUser = m.assignedTo, prevName = m.assignedName;
   m.status='available'; m.assignedTo=null; m.assignedName=null; m.assignedAt=null; m.lastCheck=null;
-  log('admin_revoked', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+  log('admin_revoked', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, previousHolder: prevUser, previousHolderName: prevName });
   await saveDB();
   showToast('Номер отозван и возвращён в пул', 'success');
   renderAdminTabContent();
@@ -1748,7 +1818,7 @@ async function saveEditMessenger(id){
       m.assignedTo = null; m.assignedName = null;
       m.assignedAt = null; m.lastCheck = null;
       m.blockedAt = null; m.tempBlockKind = null; m.tempBlockUntil = null; m.tempBlockStartedAt = null;
-      log('admin_unassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type });
+      log('admin_unassigned', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, previousHolder: initialEmpUser, previousHolderName: DB.employees[initialEmpUser] ? DB.employees[initialEmpUser].name : initialEmpUser });
     }
   }
 
@@ -1798,8 +1868,11 @@ async function confirmBulkDelete(){
   const ok = window.confirm('Удалить выбранные номера ('+bulkDeleteSelected.size+' шт) безвозвратно? Это действие нельзя отменить.');
   if(!ok) return;
   const ids = Array.from(bulkDeleteSelected);
+  const toDelete = DB.messengers.filter(m=>bulkDeleteSelected.has(m.id));
+  toDelete.forEach(m=>{
+    log('deleted_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_delete' });
+  });
   DB.messengers = DB.messengers.filter(m=>!bulkDeleteSelected.has(m.id));
-  log('bulk_delete', { username: actingAdminUsername(), count: ids.length });
   await saveDB();
   bulkDeleteMode = false;
   bulkDeleteSelected = new Set();
