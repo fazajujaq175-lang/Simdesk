@@ -439,12 +439,14 @@ async function loadDB(){
 }
 
 async function saveDB(){
-  if(!sb){ showToast('Supabase не настроен', 'danger'); return; }
+  if(!sb){ showToast('Supabase не настроен', 'danger'); return false; }
   try{
-    const { error } = await withTimeout(sb.from('sim_desk_state').update({ data: DB, updated_at: new Date().toISOString() }).eq('id', 1), 10000);
+    const { error } = await withTimeout(sb.from('sim_desk_state').update({ data: DB, updated_at: new Date().toISOString() }).eq('id', 1), 20000);
     if(error) throw error;
+    return true;
   }catch(e){
-    showToast('Не удалось сохранить данные (проверьте соединение)', 'danger');
+    showToast('Не удалось сохранить данные на сервере! Изменения могли не сохраниться — проверьте соединение и повторите действие.', 'danger');
+    return false;
   }
 }
 
@@ -711,6 +713,7 @@ async function handleLogin(){
     joinPresenceChannel();
     return;
   }
+  await refreshFromStorage();
   const emp = DB.employees[u];
   if(emp && emp.password === p){
     if(emp.role === 'admin'){
@@ -832,6 +835,7 @@ function renderBellDropdown(){
 }
 
 async function markAllNotificationsRead(){
+  await refreshFromStorage();
   DB.notifications.forEach(n=>{ if(n.username===currentUser) n.read = true; });
   await saveDB();
   renderEmployee();
@@ -1723,9 +1727,14 @@ async function handleExcelUpload(){
       log('created_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_import' });
       added++;
     });
-    await saveDB();
+    const saved = await saveDB();
+    if(!saved){
+      if(statusEl) statusEl.textContent = 'Ошибка сохранения на сервере — номера НЕ добавлены, попробуйте ещё раз (возможно, файл слишком большой, попробуйте загрузить частями).';
+      renderAdminTabContent();
+      return;
+    }
     if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено (не распознан тип): '+skipped:'');
-    showToast('Загрузка завершена: добавлено '+added+' номеров', 'success');
+    showToast('Загрузка завершена и сохранена: добавлено '+added+' номеров', 'success');
     if(input) input.value = '';
     renderAdminTabContent();
   }catch(e){
@@ -1930,7 +1939,12 @@ async function confirmBulkDelete(){
     log('deleted_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_delete' });
   });
   DB.messengers = DB.messengers.filter(m=>!bulkDeleteSelected.has(m.id));
-  await saveDB();
+  const saved = await saveDB();
+  if(!saved){
+    await refreshFromStorage();
+    renderAdminTabContent();
+    return;
+  }
   bulkDeleteMode = false;
   bulkDeleteSelected = new Set();
   showToast('Удалено номеров: '+ids.length, 'success');
@@ -2278,7 +2292,12 @@ async function confirmBulkDeleteEmployees(){
     });
     log('deleted_employee', { username: u, source:'bulk_delete' });
   });
-  await saveDB();
+  const saved = await saveDB();
+  if(!saved){
+    await refreshFromStorage();
+    renderAdminTabContent();
+    return;
+  }
   bulkDeleteEmpMode = false;
   bulkDeleteEmpSelected = new Set();
   showToast('Удалено доступов: '+usernames.length, 'success');
@@ -2322,9 +2341,14 @@ async function handleEmployeeExcelUpload(){
       log('created_employee', { username: loginVal, source:'bulk_import' });
       added++;
     });
-    await saveDB();
+    const saved = await saveDB();
+    if(!saved){
+      if(statusEl) statusEl.textContent = 'Ошибка сохранения на сервере — доступы НЕ добавлены, попробуйте ещё раз.';
+      renderAdminTabContent();
+      return;
+    }
     if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено: '+skipped+' ('+skipReasons.slice(0,5).join('; ')+(skipReasons.length>5?'…':'')+')':'');
-    showToast('Загрузка завершена: добавлено '+added+' доступов'+(skipped?', пропущено '+skipped:''), 'success');
+    showToast('Загрузка завершена и сохранена: добавлено '+added+' доступов'+(skipped?', пропущено '+skipped:''), 'success');
     if(input) input.value = '';
     renderAdminTabContent();
   }catch(e){
