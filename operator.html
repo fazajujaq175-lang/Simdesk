@@ -350,6 +350,10 @@ function defaultDB(){
 }
 
 function normalizeDB(db){
+  if(!db.settings) db.settings = { checkIntervalMinutes: 60 };
+  if(db.settings.nextEmpId===undefined) db.settings.nextEmpId = 1;
+
+  // сначала простые поля для каждого сотрудника
   Object.keys(db.employees).forEach(u=>{
     const e = db.employees[u];
     if(e.department===undefined) e.department = '';
@@ -368,6 +372,17 @@ function normalizeDB(db){
     if(e.lastLoginAt===undefined) e.lastLoginAt = null;
     delete e.norm;
   });
+
+  // ID сотрудника — по порядку создания (от старой учётки к новой).
+  // Object.keys сохраняет порядок вставки строковых ключей, поэтому для уже
+  // существующих сотрудников без ID он назначается в этом же порядке —
+  // это лучшее доступное приближение к реальному порядку создания.
+  const missingIds = Object.keys(db.employees).filter(u=>db.employees[u].empId===undefined || db.employees[u].empId===null);
+  missingIds.forEach(u=>{
+    db.employees[u].empId = db.settings.nextEmpId;
+    db.settings.nextEmpId += 1;
+  });
+
   db.messengers.forEach(m=>{
     if(m.tempBlockKind===undefined) m.tempBlockKind = null;
     if(m.tempBlockUntil===undefined) m.tempBlockUntil = null;
@@ -375,8 +390,13 @@ function normalizeDB(db){
   });
   if(!db.excessRequests) db.excessRequests = [];
   if(!db.notifications) db.notifications = [];
-  if(!db.settings) db.settings = { checkIntervalMinutes: 60 };
   return db;
+}
+
+function assignNextEmpId(db){
+  const id = db.settings.nextEmpId;
+  db.settings.nextEmpId += 1;
+  return id;
 }
 
 function seedDB(){
@@ -1331,7 +1351,7 @@ function adminMessengersHtml(){
 
       <div class="card" style="grid-column:span 2;">
         <div class="section-title" style="margin-bottom:2px;">Массовая загрузка из Excel</div>
-        <p class="section-sub">Столбец A — номер телефона, столбец B — тип (Telegram / WhatsApp / MAX). Первая строка может быть заголовком — она просто будет пропущена.</p>
+        <p class="section-sub">Столбец A — номер телефона, столбец B — тип (Telegram / WhatsApp / MAX), столбец C — ID сотрудника (необязательно — смотрите ID во вкладке «Доступы»). Если ID указан — номер сразу закрепится за этим сотрудником, если пусто — останется свободным. Первая строка может быть заголовком — она просто будет пропущена.</p>
         <div class="form-row">
           <div class="field">
             <label>Файл .xlsx / .xls</label>
@@ -1708,11 +1728,21 @@ async function handleExcelUpload(){
     const wb = XLSX.read(buf, { type:'array' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { header:1 });
-    let added = 0, skipped = 0;
+
+    // карта ID сотрудника -> username, для быстрого поиска по столбцу C
+    const empIdMap = {};
+    Object.keys(DB.employees).forEach(u=>{
+      const id = DB.employees[u].empId;
+      if(id!=null) empIdMap[String(id)] = u;
+    });
+
+    let added = 0, skipped = 0, assigned = 0, assignFailed = 0;
+    const now = Date.now();
     rows.forEach(row=>{
       if(!row || !row.length) return;
       const phoneRaw = row[0];
       const typeRaw = row[1];
+      const idRaw = row[2];
       if(phoneRaw===undefined || phoneRaw===null || String(phoneRaw).trim()==='') return;
       const phone = String(phoneRaw).trim();
       const type = normalizeMessengerType(typeRaw);
@@ -1721,10 +1751,27 @@ async function handleExcelUpload(){
         id: uid(), type, phone, status:'available',
         assignedTo:null, assignedName:null, lastHolder:null, lastHolderName:null,
         assignedAt:null, lastCheck:null, blockedAt:null,
-        tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: Date.now()
+        tempBlockKind:null, tempBlockUntil:null, tempBlockStartedAt:null, createdAt: now
       };
+      const idStr = String(idRaw===undefined||idRaw===null?'':idRaw).trim();
+      if(idStr){
+        const username = empIdMap[idStr];
+        const emp = username ? DB.employees[username] : null;
+        if(emp){
+          m.status = 'assigned';
+          m.assignedTo = username; m.assignedName = emp.name;
+          m.lastHolder = username; m.lastHolderName = emp.name;
+          m.assignedAt = now; m.lastCheck = now;
+          assigned++;
+        } else {
+          assignFailed++;
+        }
+      }
       DB.messengers.push(m);
       log('created_messenger', { username: actingAdminUsername(), messengerId:m.id, phone:m.phone, type:m.type, source:'bulk_import' });
+      if(m.status==='assigned'){
+        log('assigned', { username: m.assignedTo, messengerId:m.id, phone:m.phone, type:m.type, issuedBy: actingAdminUsername(), source:'bulk_import' });
+      }
       added++;
     });
     const saved = await saveDB();
@@ -1733,8 +1780,12 @@ async function handleExcelUpload(){
       renderAdminTabContent();
       return;
     }
-    if(statusEl) statusEl.textContent = 'Добавлено: '+added+(skipped?', пропущено (не распознан тип): '+skipped:'');
-    showToast('Загрузка завершена и сохранена: добавлено '+added+' номеров', 'success');
+    let statusText = 'Добавлено: '+added;
+    if(assigned) statusText += ', назначено сотрудникам: '+assigned;
+    if(assignFailed) statusText += ', ID не найден (номер добавлен свободным): '+assignFailed;
+    if(skipped) statusText += ', пропущено (не распознан тип): '+skipped;
+    if(statusEl) statusEl.textContent = statusText;
+    showToast('Загрузка завершена и сохранена: добавлено '+added+' номеров'+(assigned?', назначено '+assigned:''), 'success');
     if(input) input.value = '';
     renderAdminTabContent();
   }catch(e){
@@ -2152,7 +2203,7 @@ function closeEmployeeDetail(){
 
 /* ---- Access tab ---- */
 function adminAccessHtml(){
-  const usernames = Object.keys(DB.employees);
+  const usernames = Object.keys(DB.employees).sort((a,b)=>(DB.employees[a].empId||0)-(DB.employees[b].empId||0));
   const depts = uniqueDepartments();
   const onlineCount = usernames.filter(u=>onlineUsernames.has(u)).length;
   const rows = usernames.map(u=>{
@@ -2164,6 +2215,7 @@ function adminAccessHtml(){
     return `
       <tr>
         ${(bulkDeleteEmpMode && !isReadOnlyAdmin) ? `<td><input type="checkbox" ${bulkDeleteEmpSelected.has(u)?'checked':''} onclick="toggleBulkEmpSelect('${escapeHtml(u)}')"></td>` : ''}
+        <td style="font-family:var(--mono);color:var(--accent);font-weight:700;">${emp.empId!=null ? emp.empId : '—'}</td>
         <td>${escapeHtml(emp.name)}</td>
         <td style="font-family:var(--mono);color:var(--text-dim);">${escapeHtml(u)}</td>
         <td style="font-family:var(--mono);color:var(--text-dim);">${isReadOnlyAdmin ? '••••••' : escapeHtml(emp.password)}</td>
@@ -2177,6 +2229,12 @@ function adminAccessHtml(){
   }).join('');
 
   return `
+    ${isReadOnlyAdmin ? '' : `
+    <div class="card" style="margin-bottom:16px;max-width:420px;">
+      <div class="section-title" style="margin-bottom:2px;">🔎 Поиск ID сотрудника</div>
+      <p class="section-sub">ID нужен для массового назначения номеров при загрузке Excel (столбец C) — см. вкладку «Мессенджеры». Полный список ID — в таблице ниже.</p>
+    </div>
+    `}
     ${isReadOnlyAdmin ? '' : `
     <div class="grid-3" style="margin-bottom:24px;align-items:stretch;">
       <div class="card" style="grid-column:span 1;">
@@ -2252,7 +2310,7 @@ function adminAccessHtml(){
     <div class="card" style="padding:8px 16px;">
       ${usernames.length ? `
       <table>
-        <thead><tr>${(bulkDeleteEmpMode && !isReadOnlyAdmin)?'<th></th>':''}<th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th>Последний вход</th><th>Статус</th><th></th></tr></thead>
+        <thead><tr>${(bulkDeleteEmpMode && !isReadOnlyAdmin)?'<th></th>':''}<th>ID</th><th>ФИО</th><th>Логин</th><th>Пароль</th><th>Отдел</th><th>Доступ</th><th>Последний вход</th><th>Статус</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>` : '<div class="empty-state">Пока никому не выдан доступ</div>'}
     </div>
@@ -2337,7 +2395,7 @@ async function handleEmployeeExcelUpload(){
       if(!dept){ skipped++; skipReasons.push('строка '+(idx+1)+': отдел «'+String(deptRaw||'').trim()+'» не распознан'); return; }
       if(loginVal === ADMIN_LOGIN){ skipped++; skipReasons.push('строка '+(idx+1)+': логин зарезервирован'); return; }
       if(DB.employees[loginVal]){ skipped++; skipReasons.push('строка '+(idx+1)+': логин «'+loginVal+'» уже существует'); return; }
-      DB.employees[loginVal] = { password: pass, name, department: dept, role:'operator', normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null };
+      DB.employees[loginVal] = { password: pass, name, department: dept, role:'operator', normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null, empId: assignNextEmpId(DB) };
       log('created_employee', { username: loginVal, source:'bulk_import' });
       added++;
     });
@@ -2367,7 +2425,7 @@ async function adminCreateEmployee(){
   if(!name || !loginVal || !pass){ showToast('Заполните ФИО, логин и пароль', 'danger'); return; }
   if(loginVal === ADMIN_LOGIN){ showToast('Этот логин зарезервирован', 'danger'); return; }
   if(DB.employees[loginVal]){ showToast('Такой логин уже существует', 'danger'); return; }
-  DB.employees[loginVal] = { password: pass, name, department: dept, role, normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null };
+  DB.employees[loginVal] = { password: pass, name, department: dept, role, normByType: { telegram:null, whatsapp:null, max:null }, lastLoginAt: null, empId: assignNextEmpId(DB) };
   log('created_employee', { username: loginVal });
   await saveDB();
   showToast('Доступ создан', 'success');
